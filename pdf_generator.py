@@ -112,7 +112,7 @@ def create_plotly_image(fig, width=600, height=400):
         return Paragraph(f"图表生成失败: {str(e)}", error_style)
 
 
-def generate_complete_pdf_report():
+def generate_complete_pdf_report(filters=None):
     """生成完整的PDF报告，包含所有图表和数据"""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=0.5*inch, rightMargin=0.5*inch)
@@ -162,6 +162,13 @@ def generate_complete_pdf_report():
     story.append(Spacer(1, 20))
     story.append(Paragraph(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", normal_style))
     story.append(Spacer(1, 20))
+    
+    # 显示筛选条件
+    if filters:
+        filter_desc = filters.get_description()
+        story.append(Paragraph(f"筛选条件: {filter_desc}", normal_style))
+        story.append(Spacer(1, 20))
+    
     story.append(Paragraph("本报告包含所有Dashboard页面的图表和数据分析", normal_style))
     story.append(PageBreak())
     
@@ -172,7 +179,7 @@ def generate_complete_pdf_report():
         # === 1. 基础统计信息 ===
         story.append(Paragraph("1. 基础统计信息", heading_style))
         
-        basic_stats = data_service.get_basic_stats()
+        basic_stats = data_service.get_basic_stats(filters)
         stats_data = [
             ['指标', '数值'],
             ['总记录数', f"{basic_stats['total_records']:,}"],
@@ -202,7 +209,7 @@ def generate_complete_pdf_report():
         
         # 2.1 上行vs下行流量分布
         story.append(Paragraph("2.1 上行vs下行流量分布", subheading_style))
-        fig = data_service.create_traffic_pie_chart()
+        fig = data_service.create_traffic_pie_chart(filters)
         if fig:
             story.append(create_plotly_image(fig, width=500, height=400))
         
@@ -210,13 +217,13 @@ def generate_complete_pdf_report():
         
         # 2.2 流量时长分布
         story.append(Paragraph("2.2 流量时长分布", subheading_style))
-        fig = data_service.create_duration_bar_chart()
+        fig = data_service.create_duration_bar_chart(filters)
         if fig:
             story.append(create_plotly_image(fig, width=500, height=400))
         
         # 2.3 流量TOP用户
         story.append(Paragraph("2.3 流量TOP用户", subheading_style))
-        fig = data_service.create_top_users_bar_chart(10)
+        fig = data_service.create_top_users_bar_chart(10, filters)
         if fig:
             story.append(create_plotly_image(fig, width=600, height=400))
         
@@ -227,7 +234,7 @@ def generate_complete_pdf_report():
         
         # 3.1 用户活跃度分析
         story.append(Paragraph("3.1 用户活跃度分析", subheading_style))
-        fig = data_service.create_user_activity_pie_chart()
+        fig = data_service.create_user_activity_pie_chart(filters)
         if fig:
             story.append(create_plotly_image(fig, width=500, height=400))
         
@@ -235,19 +242,19 @@ def generate_complete_pdf_report():
         
         # 3.2 用户流量消耗分布
         story.append(Paragraph("3.2 用户流量消耗分布", subheading_style))
-        fig = data_service.create_user_traffic_bar_chart()
+        fig = data_service.create_user_traffic_bar_chart(filters)
         if fig:
             story.append(create_plotly_image(fig, width=500, height=400))
         
         # 3.3 高活跃上传用户分析
         story.append(Paragraph("3.3 高活跃上传用户分析", subheading_style))
-        fig = data_service.create_upload_users_bar_chart(10)
+        fig = data_service.create_upload_users_bar_chart(10, filters)
         if fig:
             story.append(create_plotly_image(fig, width=600, height=400))
         
         story.append(Spacer(1, 12))
         
-        fig = data_service.create_upload_ratio_scatter_chart(10)
+        fig = data_service.create_upload_ratio_scatter_chart(10, filters)
         if fig:
             story.append(create_plotly_image(fig, width=600, height=400))
         
@@ -258,7 +265,7 @@ def generate_complete_pdf_report():
         
         # 4.1 应用大类流量分析
         story.append(Paragraph("4.1 应用大类流量分析", subheading_style))
-        fig = data_service.create_app_traffic_bar_chart(10)
+        fig = data_service.create_app_traffic_bar_chart(10, filters)
         if fig:
             story.append(create_plotly_image(fig, width=600, height=400))
         
@@ -266,7 +273,7 @@ def generate_complete_pdf_report():
         
         # 4.2 应用大类用户数分析
         story.append(Paragraph("4.2 应用大类用户数分析", subheading_style))
-        fig = data_service.create_app_users_bar_chart(10)
+        fig = data_service.create_app_users_bar_chart(10, filters)
         if fig:
             story.append(create_plotly_image(fig, width=600, height=400))
         
@@ -277,7 +284,7 @@ def generate_complete_pdf_report():
         
         # 5.1 数据统计时间分布
         story.append(Paragraph("5.1 数据统计时间分布", subheading_style))
-        fig = data_service.create_time_series_chart()
+        fig = data_service.create_time_series_chart(filters)
         if fig:
             story.append(create_plotly_image(fig, width=600, height=400))
         
