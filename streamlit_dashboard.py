@@ -240,6 +240,112 @@ def show_user_analysis():
                     title='用户流量消耗分布',
                     labels={'traffic_range': '流量范围', 'user_count': '用户数'})
         st.plotly_chart(fig, use_container_width=True)
+    
+    # 高活跃且上行流量为主的用户分析
+    st.subheader("🔍 高活跃上传用户分析")
+    st.markdown("**分析条件**: 活跃用户(会话数≥5) + 上行流量>下行流量 + 上行流量≥100MB")
+    
+    upload_heavy_users = execute_query("""
+        SELECT 
+            user_account,
+            COUNT(*) as session_count,
+            SUM(upstream_traffic) as total_upstream,
+            SUM(downstream_traffic) as total_downstream,
+            SUM(total_traffic) as total_traffic,
+            CASE 
+                WHEN SUM(downstream_traffic) = 0 THEN 999.99
+                ELSE ROUND(SUM(upstream_traffic) / SUM(downstream_traffic), 2)
+            END as upload_ratio
+        FROM default.tbl_statistic_userapp_day
+        GROUP BY user_account
+        HAVING session_count >= 5 
+            AND total_upstream > total_downstream 
+            AND total_upstream >= 104857600
+        ORDER BY total_upstream DESC
+        LIMIT 20
+    """)
+    
+    if not upload_heavy_users.empty:
+        # 数据转换
+        upload_heavy_users['upstream_gb'] = upload_heavy_users['total_upstream'] / (1024*1024*1024)
+        upload_heavy_users['downstream_gb'] = upload_heavy_users['total_downstream'] / (1024*1024*1024)
+        upload_heavy_users['total_gb'] = upload_heavy_users['total_traffic'] / (1024*1024*1024)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # 上行流量TOP用户柱状图
+            fig = px.bar(upload_heavy_users.head(10), 
+                        x='user_account', y='upstream_gb',
+                        title='TOP 10高活跃上传用户 - 上行流量',
+                        labels={'user_account': '用户账号', 'upstream_gb': '上行流量(GB)'},
+                        text='upstream_gb')
+            fig.update_traces(texttemplate='%{text:.1f}GB', textposition='outside')
+            fig.update_layout(xaxis_tickangle=45)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            # 上传比例散点图
+            fig = px.scatter(upload_heavy_users, 
+                           x='session_count', y='upload_ratio',
+                           size='upstream_gb', hover_name='user_account',
+                           title='用户活跃度 vs 上传比例',
+                           labels={'session_count': '会话数', 'upload_ratio': '上传/下载比例'},
+                           color='upstream_gb',
+                           color_continuous_scale='Reds')
+            fig.update_layout(showlegend=True)
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # 详细数据表格
+        st.subheader("📋 高活跃上传用户详细数据")
+        display_df = upload_heavy_users[['user_account', 'session_count', 'upstream_gb', 
+                                       'downstream_gb', 'total_gb', 'upload_ratio']].copy()
+        display_df.columns = ['用户账号', '会话数', '上行流量(GB)', '下行流量(GB)', '总流量(GB)', '上传比例']
+        
+        # 格式化上传比例显示
+        display_df['上传比例'] = display_df['上传比例'].apply(
+            lambda x: "仅上传" if x >= 999 else f"{x:.1f}:1"
+        )
+        
+        # 添加风险等级（使用原始数值进行判断）
+        def get_risk_level(row):
+            ratio = upload_heavy_users.loc[row.name, 'upload_ratio'] 
+            upstream_gb = row['上行流量(GB)']
+            
+            if (ratio >= 999 or ratio >= 10) and upstream_gb >= 5:
+                return "🔴 高风险"
+            elif (ratio >= 999 or ratio >= 5) and upstream_gb >= 1:
+                return "🟡 中风险" 
+            else:
+                return "🟢 低风险"
+        
+        display_df['风险等级'] = display_df.apply(get_risk_level, axis=1)
+        st.dataframe(display_df, use_container_width=True)
+        
+        # 统计摘要
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("符合条件用户数", len(upload_heavy_users))
+        with col2:
+            avg_ratio = upload_heavy_users['upload_ratio'].mean()
+            st.metric("平均上传比例", f"{avg_ratio:.1f}:1")
+        with col3:
+            total_upstream = upload_heavy_users['upstream_gb'].sum()
+            st.metric("总上行流量", f"{total_upstream:.1f} GB")
+        with col4:
+            high_risk_count = len(display_df[display_df['风险等级'] == '🔴 高风险'])
+            st.metric("高风险用户数", high_risk_count)
+        
+        st.info("""
+        📊 **分析说明**: 
+        - **高活跃**: 会话数≥5次，表示用户使用频繁
+        - **上传为主**: 上行流量>下行流量，可能涉及内容上传、数据同步等行为
+        - **上传比例**: "仅上传"表示下行流量为0，其他显示为上传:下载的比例
+        - **风险等级**: 基于上传比例和流量大小综合评估，"仅上传"用户自动视为高风险
+        - **业务建议**: 关注高风险用户的使用行为，确保合规使用
+        """)
+    else:
+        st.warning("未找到符合条件的高活跃上传用户")
 
 def show_app_analysis():
     """应用分析页面"""

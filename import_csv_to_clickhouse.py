@@ -48,28 +48,28 @@ def main():
         print(df.head())
         
         # 先删除已存在的表，然后重新创建
-        drop_table_sql = f"DROP TABLE IF EXISTS {table_name}"
-        client.command(drop_table_sql)
-        print(f"已删除表 {table_name}")
+        #drop_table_sql = f"DROP TABLE IF EXISTS {table_name}"
+        #client.command(drop_table_sql)
+        #print(f"已删除表 {table_name}")
         
         # 创建新表，流量字段使用Float64类型
-        create_table_sql = f"""
-        CREATE TABLE {table_name} (
-            user_account String,
-            ip_type Int32,
-            app_category_major Int32,
-            app_category_minor Int32,
-            upstream_traffic Float64,
-            downstream_traffic Float64,
-            total_traffic Float64,
-            duration Float64,
-            stat_time String
-        ) ENGINE = MergeTree()
-        ORDER BY (user_account, stat_time)
-        """
+        #create_table_sql = f"""
+        #CREATE TABLE {table_name} (
+        #    user_account String,
+        #    ip_type Int32,
+        #    app_category_major Int32,
+        #    app_category_minor Int32,
+        #    upstream_traffic Float64,
+        #    downstream_traffic Float64,
+        #    total_traffic Float64,
+        #    duration Float64,
+        #    stat_time String
+        #) ENGINE = MergeTree()
+        #ORDER BY (user_account, stat_time)
+        #"""
         
-        client.command(create_table_sql)
-        print(f"表 {table_name} 创建成功或已存在")
+        #client.command(create_table_sql)
+        #print(f"表 {table_name} 创建成功或已存在")
         
         # 准备数据列名映射
         column_mapping = {
