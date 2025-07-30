@@ -6,6 +6,8 @@ ClickHouse数据可视化Dashboard
 """
 
 import streamlit as st
+import pandas as pd
+import io
 from datetime import datetime, date
 from data_service import DataService, FilterConditions
 from pdf_generator import generate_complete_pdf_report
@@ -45,13 +47,7 @@ st.markdown("""
     border-bottom: 3px solid #ff4b4b;
 }
 
-/* 标签页文字样式 - 使用更具体的选择器 */
-.stTabs [data-baseweb="tab"] > div {
-    font-size: 24px !important;
-    font-weight: 600 !important;
-    line-height: 1.2 !important;
-    color: #262730 !important;
-}
+
 
 /* 选中状态的文字颜色 */
 .stTabs [aria-selected="true"] > div {
@@ -63,20 +59,11 @@ st.markdown("""
 .stTabs [data-baseweb="tab"] p,
 .stTabs [data-baseweb="tab"] div,
 .stTabs [data-baseweb="tab"] * {
-    font-size: 24px !important;
+    font-size: 16px !important;
     font-weight: 600 !important;
     line-height: 1.2 !important;
 }
 
-/* 强制覆盖所有可能的样式 */
-div[data-baseweb="tab"] {
-    font-size: 24px !important;
-}
-
-div[data-baseweb="tab"] > * {
-    font-size: 24px !important;
-    font-weight: 600 !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -121,8 +108,11 @@ def create_filter_panel(data_service: DataService) -> FilterConditions:
         min_date = date_range['min_date']
         max_date = date_range['max_date']
         
-        # 如果是字符串，转换为date对象
-        if isinstance(min_date, str):
+        # 转换为date对象
+        if hasattr(min_date, 'date'):
+            # 如果是pandas Timestamp或datetime对象
+            min_date = min_date.date()
+        elif isinstance(min_date, str):
             try:
                 # 尝试多种日期格式
                 for fmt in ['%Y/%m/%d %H:%M', '%Y-%m-%d', '%Y/%m/%d']:
@@ -137,7 +127,10 @@ def create_filter_panel(data_service: DataService) -> FilterConditions:
             except:
                 min_date = datetime.now().date()
                 
-        if isinstance(max_date, str):
+        if hasattr(max_date, 'date'):
+            # 如果是pandas Timestamp或datetime对象
+            max_date = max_date.date()
+        elif isinstance(max_date, str):
             try:
                 # 尝试多种日期格式
                 for fmt in ['%Y/%m/%d %H:%M', '%Y-%m-%d', '%Y/%m/%d']:
@@ -152,14 +145,25 @@ def create_filter_panel(data_service: DataService) -> FilterConditions:
             except:
                 max_date = datetime.now().date()
         
+        # 添加日期范围信息显示
+        st.sidebar.markdown(f"**数据日期范围**: {min_date} 至 {max_date}")
+        
         col1, col2 = st.sidebar.columns(2)
         with col1:
+            # 默认不选择开始日期，让用户主动选择
             start_date = st.date_input("开始日期", 
-                                     value=min_date,
+                                     value=None,
+                                     min_value=min_date,
+                                     max_value=max_date,
                                      key=f"start_date_{st.session_state.reset_counter}")
         with col2:
+            # 默认不选择结束日期，让用户主动选择  
+            # 如果用户选择了开始日期，则结束日期的最小值应该是开始日期
+            end_min_date = start_date if start_date and start_date >= min_date else min_date
             end_date = st.date_input("结束日期",
-                                   value=max_date,
+                                   value=None,
+                                   min_value=end_min_date,
+                                   max_value=max_date,
                                    key=f"end_date_{st.session_state.reset_counter}")
     else:
         start_date = None
@@ -192,9 +196,64 @@ def create_filter_panel(data_service: DataService) -> FilterConditions:
     
     return filters
 
+def import_csv_data(uploaded_file, data_service: DataService):
+    """导入CSV数据到ClickHouse数据库"""
+    try:
+        # 读取上传的CSV文件
+        content = uploaded_file.read()
+        csv_content = content.decode('utf-8')
+        
+        # 创建DataFrame，指定列名
+        column_names = [
+            'user_account', 'ip_type', 'app_category_major', 'app_category_minor',
+            'upstream_traffic', 'downstream_traffic', 'total_traffic', 
+            'duration', 'stat_time'
+        ]
+        
+        # 使用StringIO读取CSV数据
+        df = pd.read_csv(io.StringIO(csv_content), header=None, names=column_names)
+        
+        # 数据验证和类型转换
+        df['ip_type'] = pd.to_numeric(df['ip_type'], errors='coerce')
+        df['app_category_major'] = pd.to_numeric(df['app_category_major'], errors='coerce')
+        df['app_category_minor'] = pd.to_numeric(df['app_category_minor'], errors='coerce')
+        df['upstream_traffic'] = pd.to_numeric(df['upstream_traffic'], errors='coerce')
+        df['downstream_traffic'] = pd.to_numeric(df['downstream_traffic'], errors='coerce')
+        df['total_traffic'] = pd.to_numeric(df['total_traffic'], errors='coerce')
+        df['duration'] = pd.to_numeric(df['duration'], errors='coerce')
+        
+        # 处理空值
+        df = df.dropna()
+        
+        if df.empty:
+            return {'success': False, 'error': 'CSV文件中没有有效数据'}
+        
+        # 准备数据
+        data_tuples = []
+        for _, row in df.iterrows():
+            data_tuples.append((
+                row['user_account'],
+                int(row['ip_type']),
+                int(row['app_category_major']),
+                int(row['app_category_minor']),
+                int(row['upstream_traffic']),
+                int(row['downstream_traffic']),
+                int(row['total_traffic']),
+                int(row['duration']),
+                row['stat_time']
+            ))
+        
+        # 执行批量插入
+        data_service.client.insert('default.tbl_statistic_userapp_day', data_tuples)
+        
+        return {'success': True, 'count': len(data_tuples)}
+        
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
 def main():
     # 使用更大的标题
-    st.markdown("# 📊 用户流量分析Dashboard")
+    st.markdown("## 📊 用户流量分析Dashboard")
 
     st.markdown("---")
     
@@ -231,9 +290,54 @@ def main():
     st.sidebar.info("📊 此PDF包含所有Dashboard页面的图表和数据分析")
     st.sidebar.markdown("---")
     
+    # CSV数据导入功能
+    st.sidebar.markdown("### 📂 数据导入")
+    uploaded_file = st.sidebar.file_uploader(
+        "选择CSV文件导入", 
+        type=['csv'],
+        help="上传无表头的CSV文件，数据格式：user_account,ip_type,app_category_major,app_category_minor,upstream_traffic,downstream_traffic,total_traffic,duration,stat_time"
+    )
+    
+    if uploaded_file is not None:
+        # 预览CSV数据
+        try:
+            content = uploaded_file.read()
+            csv_content = content.decode('utf-8')
+            uploaded_file.seek(0)  # 重置文件指针
+            
+            # 只显示前几行作为预览
+            lines = csv_content.strip().split('\n')[:3]
+            st.sidebar.markdown("**📋 数据预览 (前3行):**")
+            for i, line in enumerate(lines, 1):
+                st.sidebar.text(f"{i}: {line[:50]}...")
+            
+            line_count = len(csv_content.strip().split('\n'))
+            st.sidebar.markdown(f"**📊 文件信息:** 共 {line_count} 行数据")
+            
+        except Exception as e:
+            st.sidebar.error(f"文件预览失败: {str(e)}")
+        
+        # 导入按钮
+        if st.sidebar.button("🚀 导入数据到数据库", type="primary"):
+            with st.spinner("正在导入CSV数据到ClickHouse数据库..."):
+                try:
+                    # 导入CSV数据
+                    result = import_csv_data(uploaded_file, data_service)
+                    if result['success']:
+                        st.sidebar.success(f"✅ 数据导入成功！共导入 {result['count']} 条记录")
+                        # 清除缓存以更新数据
+                        st.cache_resource.clear()
+                        st.rerun()
+                    else:
+                        st.sidebar.error(f"❌ 数据导入失败：{result['error']}")
+                except Exception as e:
+                    st.sidebar.error(f"❌ 数据导入失败：{str(e)}")
+    
+    st.sidebar.markdown("---")
+    
     try:
         # 基础统计信息 - 使用二级标题，与主标题协调
-        st.markdown("## 📈 基础统计信息")
+        st.markdown("### 📈 基础统计信息")
         
         basic_stats = data_service.get_basic_stats(filters)
         

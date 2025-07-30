@@ -36,15 +36,20 @@ class FilterConditions:
         if self.ip_type is not None:
             conditions.append(f"ip_type = {self.ip_type}")
         
-        if self.start_date:
-            # 转换为数据库期望的格式 'YYYY/M/D H:M'
-            start_str = f"{self.start_date.year}/{self.start_date.month}/{self.start_date.day} 0:00"
-            conditions.append(f"stat_time >= '{start_str}'")
-        
-        if self.end_date:
-            # 转换为数据库期望的格式 'YYYY/M/D H:M'
-            end_str = f"{self.end_date.year}/{self.end_date.month}/{self.end_date.day} 23:59"
-            conditions.append(f"stat_time <= '{end_str}'")
+        # 日期筛选逻辑：使用ClickHouse的日期解析函数处理不同格式
+        if self.start_date and self.end_date:
+            # 有开始和结束日期：范围筛选
+            start_str = f"{self.start_date.year}-{self.start_date.month:02d}-{self.start_date.day:02d}"
+            end_str = f"{self.end_date.year}-{self.end_date.month:02d}-{self.end_date.day:02d}"
+            conditions.append(f"toDate(parseDateTimeBestEffort(stat_time)) >= toDate('{start_str}') AND toDate(parseDateTimeBestEffort(stat_time)) <= toDate('{end_str}')")
+        elif self.start_date:
+            # 只有开始日期：从开始日期到数据最大日期
+            start_str = f"{self.start_date.year}-{self.start_date.month:02d}-{self.start_date.day:02d}"
+            conditions.append(f"toDate(parseDateTimeBestEffort(stat_time)) >= toDate('{start_str}')")
+        elif self.end_date:
+            # 只有结束日期：从数据最小日期到结束日期
+            end_str = f"{self.end_date.year}-{self.end_date.month:02d}-{self.end_date.day:02d}"
+            conditions.append(f"toDate(parseDateTimeBestEffort(stat_time)) <= toDate('{end_str}')")
         
         if self.app_category_major:
             conditions.append(f"app_category_major = '{self.app_category_major}'")
@@ -584,8 +589,8 @@ class DataService:
         """获取数据的日期范围"""
         df = self.execute_query("""
             SELECT 
-                MIN(stat_time) as min_date,
-                MAX(stat_time) as max_date
+                MIN(parseDateTimeBestEffort(stat_time)) as min_date,
+                MAX(parseDateTimeBestEffort(stat_time)) as max_date
             FROM default.tbl_statistic_userapp_day
         """)
         if df.empty:

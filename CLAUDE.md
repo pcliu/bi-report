@@ -122,3 +122,10 @@ All database connections use connection pooling through `clickhouse_connect` lib
 ## Memorized Commands
 
 - Start dashboard: `source .venv/bin/activate && streamlit run streamlit_dashboard.py`
+
+## Date Formatting Considerations
+- When handling date formats in the project, pay special attention to:
+  - Consistent parsing of `stat_time` field across different components
+  - Converting between timestamp and human-readable date formats
+  - Handling timezone considerations in date-based queries and visualizations
+  - Implementing robust date range filtering in `FilterConditions` class
