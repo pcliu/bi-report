@@ -146,22 +146,22 @@ def create_filter_panel(data_service: DataService) -> FilterConditions:
                 max_date = datetime.now().date()
         
         # 添加日期范围信息显示
-        st.sidebar.markdown(f"**数据日期范围**: {min_date} 至 {max_date}")
+        #st.sidebar.markdown(f"**数据日期范围**: {min_date} 至 {max_date}")
         
         col1, col2 = st.sidebar.columns(2)
         with col1:
-            # 默认不选择开始日期，让用户主动选择
+            # 默认选择数据库的最小日期
             start_date = st.date_input("开始日期", 
-                                     value=None,
+                                     value=min_date,
                                      min_value=min_date,
                                      max_value=max_date,
                                      key=f"start_date_{st.session_state.reset_counter}")
         with col2:
-            # 默认不选择结束日期，让用户主动选择  
+            # 默认选择数据库的最大日期
             # 如果用户选择了开始日期，则结束日期的最小值应该是开始日期
             end_min_date = start_date if start_date and start_date >= min_date else min_date
             end_date = st.date_input("结束日期",
-                                   value=None,
+                                   value=max_date,
                                    min_value=end_min_date,
                                    max_value=max_date,
                                    key=f"end_date_{st.session_state.reset_counter}")
@@ -174,19 +174,35 @@ def create_filter_panel(data_service: DataService) -> FilterConditions:
     selected_app_category = st.sidebar.selectbox("应用大类", app_categories, index=0, key=f"app_category_filter_{st.session_state.reset_counter}")
     app_category_filter = selected_app_category if selected_app_category and selected_app_category != "全部" else None
     
+    # 日期筛选逻辑：只有当用户选择的日期范围不是完整范围时才应用筛选
+    date_filter_active = False
+    filter_start_date = None
+    filter_end_date = None
+    
+    if date_range['min_date'] and date_range['max_date']:
+        # 获取数据库的实际日期范围用于比较
+        db_min_date = min_date
+        db_max_date = max_date
+        
+        # 只有当用户选择的日期不是完整数据库范围时才应用筛选
+        if start_date != db_min_date or end_date != db_max_date:
+            filter_start_date = start_date
+            filter_end_date = end_date
+            date_filter_active = True
+    
     # 创建筛选条件
     filters = FilterConditions(
         user_account=user_filter,
         ip_type=ip_type_filter,
-        start_date=start_date,
-        end_date=end_date,
+        start_date=filter_start_date,
+        end_date=filter_end_date,
         app_category_major=app_category_filter
     )
     
     #st.sidebar.markdown("---")
     
     # 显示当前筛选条件
-    has_filters = any([user_filter, ip_type_filter is not None, app_category_filter])
+    has_filters = any([user_filter, ip_type_filter is not None, app_category_filter, date_filter_active])
     if has_filters:
         #st.sidebar.info(f"📋 {filters.get_description()}")
         if st.sidebar.button("🔄 清除所有筛选", key="clear_button"):
@@ -258,7 +274,8 @@ def main():
     st.markdown("---")
     
     # 侧边栏 - 专注于筛选和操作
-    st.sidebar.title("🎛️ 控制面板")
+    st.sidebar.markdown("# 🎛️ 控制面板")
+    st.sidebar.markdown("---")
     
     # 获取数据服务
     data_service = get_data_service()
@@ -269,7 +286,7 @@ def main():
     filters = create_filter_panel(data_service)
     
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 📄 报告导出")
+    st.sidebar.markdown("### 📄 报告导出",help="生成包含所有Dashboard页面图表和数据分析的完整PDF报告。报告将根据当前筛选条件生成，包含基础统计信息、流量分析、用户分析、应用分析和时间分析等所有模块。")
     
     # 添加PDF导出按钮
     if st.sidebar.button("📄 导出完整PDF报告", type="primary"):
@@ -287,7 +304,6 @@ def main():
             except Exception as e:
                 st.sidebar.error(f"PDF生成失败: {str(e)}")
     
-    st.sidebar.info("📊 此PDF包含所有Dashboard页面的图表和数据分析")
     st.sidebar.markdown("---")
     
     # CSV数据导入功能
