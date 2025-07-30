@@ -339,6 +339,24 @@ class DataService:
         
         return df
     
+    def get_ip_type_distribution(self, filters: Optional[FilterConditions] = None) -> pd.DataFrame:
+        """获取IPv4和IPv6分布"""
+        where_clause = filters.build_where_clause() if filters else ""
+        return self.execute_query(f"""
+            SELECT 
+                CASE 
+                    WHEN ip_type = 0 THEN 'IPv4'
+                    WHEN ip_type = 1 THEN 'IPv6'
+                    ELSE 'Unknown'
+                END as ip_type_name,
+                COUNT(*) as session_count,
+                SUM(total_traffic) as total_traffic,
+                COUNT(DISTINCT user_account) as user_count
+            FROM default.tbl_statistic_userapp_day{where_clause}
+            GROUP BY ip_type
+            ORDER BY session_count DESC
+        """)
+    
     # === 图表生成方法 ===
     
     def create_traffic_pie_chart(self, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
@@ -491,6 +509,54 @@ class DataService:
                          xaxis_title='统计时间', yaxis_title='记录数',
                          font=dict(size=12),
                          showlegend=True)
+        return fig
+    
+    def create_ip_type_pie_chart(self, filters: Optional[FilterConditions] = None, by_traffic: bool = True) -> Optional[go.Figure]:
+        """创建IPv4 vs IPv6分布饼图"""
+        ip_data = self.get_ip_type_distribution(filters)
+        if ip_data.empty:
+            return None
+        
+        # 根据参数选择显示流量分布还是会话分布
+        if by_traffic:
+            values = ip_data['total_traffic']
+            title = 'IPv4 vs IPv6 流量分布'
+            # 转换为GB并格式化显示
+            ip_data['traffic_gb'] = ip_data['total_traffic'] / (1024*1024*1024)
+            hover_template = '<b>%{label}</b><br>' + \
+                           '流量: %{customdata:.2f} GB<br>' + \
+                           '占比: %{percent}<br>' + \
+                           '<extra></extra>'
+            customdata = ip_data['traffic_gb']
+        else:
+            values = ip_data['session_count']
+            title = 'IPv4 vs IPv6 会话分布'
+            hover_template = '<b>%{label}</b><br>' + \
+                           '会话数: %{value:,}<br>' + \
+                           '占比: %{percent}<br>' + \
+                           '<extra></extra>'
+            customdata = None
+        
+        fig = go.Figure(data=[go.Pie(
+            labels=ip_data['ip_type_name'],
+            values=values,
+            textinfo='label+percent',
+            textposition='auto',
+            hovertemplate=hover_template,
+            customdata=customdata,
+            marker=dict(
+                colors=['#3498db', '#e74c3c', '#95a5a6'],  # 蓝色IPv4, 红色IPv6, 灰色Unknown
+                line=dict(color='#FFFFFF', width=2)
+            )
+        )])
+        
+        fig.update_layout(
+            title=title,
+            font=dict(size=12),
+            showlegend=True,
+            legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.05)
+        )
+        
         return fig
     
     # === 辅助方法 ===

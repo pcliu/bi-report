@@ -273,7 +273,8 @@ def show_traffic_analysis(data_service, filters):
     #st.markdown("### 🌊 流量分析")
     
     try:
-        col1, col2 = st.columns(2)
+        # 第一行：上行vs下行流量分布 和 IPv4 vs IPv6分布
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.subheader("上行vs下行流量分布")
@@ -282,6 +283,12 @@ def show_traffic_analysis(data_service, filters):
                 st.plotly_chart(fig, use_container_width=True)
         
         with col2:
+            st.subheader("IPv4 vs IPv6 流量分布")
+            fig = data_service.create_ip_type_pie_chart(filters, by_traffic=True)
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with col3:
             st.subheader("流量时长分布")
             fig = data_service.create_duration_bar_chart(filters)
             if fig:

@@ -215,14 +215,22 @@ def generate_complete_pdf_report(filters=None):
         
         story.append(Spacer(1, 12))
         
-        # 2.2 流量时长分布
-        story.append(Paragraph("2.2 流量时长分布", subheading_style))
+        # 2.2 IPv4 vs IPv6流量分布
+        story.append(Paragraph("2.2 IPv4 vs IPv6流量分布", subheading_style))
+        fig = data_service.create_ip_type_pie_chart(filters, by_traffic=True)
+        if fig:
+            story.append(create_plotly_image(fig, width=500, height=400))
+        
+        story.append(Spacer(1, 12))
+        
+        # 2.3 流量时长分布
+        story.append(Paragraph("2.3 流量时长分布", subheading_style))
         fig = data_service.create_duration_bar_chart(filters)
         if fig:
             story.append(create_plotly_image(fig, width=500, height=400))
         
-        # 2.3 流量TOP用户
-        story.append(Paragraph("2.3 流量TOP用户", subheading_style))
+        # 2.4 流量TOP用户
+        story.append(Paragraph("2.4 流量TOP用户", subheading_style))
         fig = data_service.create_top_users_bar_chart(10, filters)
         if fig:
             story.append(create_plotly_image(fig, width=600, height=400))
