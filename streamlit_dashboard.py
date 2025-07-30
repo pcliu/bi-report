@@ -21,37 +21,61 @@ st.set_page_config(
 # 自定义CSS样式 - 放大标签页字体和图标
 st.markdown("""
 <style>
-/* 放大标签页字体和图标 */
+/* 标签页容器样式 */
 .stTabs [data-baseweb="tab-list"] {
     gap: 8px;
 }
 
+/* 标签页基础样式 */
 .stTabs [data-baseweb="tab"] {
     height: 60px;
     white-space: pre-wrap;
     background-color: #f0f2f6;
     border-radius: 8px 8px 0px 0px;
     gap: 8px;
-    padding-top: 10px;
-    padding-bottom: 10px;
-    padding-left: 16px;
-    padding-right: 16px;
+    padding: 10px 16px;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 
+/* 选中状态的标签页 */
 .stTabs [aria-selected="true"] {
     background-color: #ffffff;
     border-bottom: 3px solid #ff4b4b;
 }
 
-.stTabs [data-baseweb="tab"] span {
-    font-size: 18px !important;
+/* 标签页文字样式 - 使用更具体的选择器 */
+.stTabs [data-baseweb="tab"] > div {
+    font-size: 24px !important;
     font-weight: 600 !important;
+    line-height: 1.2 !important;
+    color: #262730 !important;
 }
 
-/* 确保图标也放大 */
-.stTabs [data-baseweb="tab"] span::before {
-    font-size: 20px !important;
-    margin-right: 8px;
+/* 选中状态的文字颜色 */
+.stTabs [aria-selected="true"] > div {
+    color: #ff4b4b !important;
+}
+
+/* 如果还有span元素，也确保样式生效 */
+.stTabs [data-baseweb="tab"] span,
+.stTabs [data-baseweb="tab"] p,
+.stTabs [data-baseweb="tab"] div,
+.stTabs [data-baseweb="tab"] * {
+    font-size: 24px !important;
+    font-weight: 600 !important;
+    line-height: 1.2 !important;
+}
+
+/* 强制覆盖所有可能的样式 */
+div[data-baseweb="tab"] {
+    font-size: 24px !important;
+}
+
+div[data-baseweb="tab"] > * {
+    font-size: 24px !important;
+    font-weight: 600 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -155,12 +179,12 @@ def create_filter_panel(data_service: DataService) -> FilterConditions:
         app_category_major=app_category_filter
     )
     
-    st.sidebar.markdown("---")
+    #st.sidebar.markdown("---")
     
     # 显示当前筛选条件
     has_filters = any([user_filter, ip_type_filter is not None, app_category_filter])
     if has_filters:
-        st.sidebar.info(f"📋 {filters.get_description()}")
+        #st.sidebar.info(f"📋 {filters.get_description()}")
         if st.sidebar.button("🔄 清除所有筛选", key="clear_button"):
             # 增加重置计数器，强制重新创建所有控件
             st.session_state.reset_counter += 1
@@ -169,7 +193,10 @@ def create_filter_panel(data_service: DataService) -> FilterConditions:
     return filters
 
 def main():
-    st.title("📊 用户流量分析Dashboard")
+    # 使用更大的标题
+    st.markdown("# 📊 用户流量分析Dashboard")
+
+    st.markdown("---")
     
     # 侧边栏 - 专注于筛选和操作
     st.sidebar.title("🎛️ 控制面板")
@@ -205,8 +232,8 @@ def main():
     st.sidebar.markdown("---")
     
     try:
-        # 基础统计信息 - 放在标签页上面，保持不动
-        st.header("📈 基础统计信息")
+        # 基础统计信息 - 使用二级标题，与主标题协调
+        st.markdown("## 📈 基础统计信息")
         
         basic_stats = data_service.get_basic_stats(filters)
         
@@ -243,7 +270,7 @@ def main():
 
 def show_traffic_analysis(data_service, filters):
     """流量分析页面"""
-    st.header("🌊 流量分析")
+    #st.markdown("### 🌊 流量分析")
     
     try:
         col1, col2 = st.columns(2)
@@ -276,7 +303,7 @@ def show_traffic_analysis(data_service, filters):
 
 def show_user_analysis(data_service, filters):
     """用户分析页面"""
-    st.header("👥 用户分析")
+    #st.markdown("### 👥 用户分析")
     
     try:
         # 用户活跃度分析
@@ -368,7 +395,7 @@ def show_user_analysis(data_service, filters):
 
 def show_app_analysis(data_service, filters):
     """应用分析页面"""
-    st.header("📱 应用分析")
+    #st.markdown("### 📱 应用分析")
     
     try:
         col1, col2 = st.columns(2)
@@ -402,7 +429,7 @@ def show_app_analysis(data_service, filters):
 
 def show_time_analysis(data_service, filters):
     """时间分析页面"""
-    st.header("⏰ 时间分析")
+    #st.markdown("### ⏰ 时间分析")
     
     try:
         st.subheader("数据统计时间分布")
