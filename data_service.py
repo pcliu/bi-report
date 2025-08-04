@@ -52,7 +52,12 @@ class FilterConditions:
             conditions.append(f"toDate(parseDateTimeBestEffort(stat_time)) <= toDate('{end_str}')")
         
         if self.app_category_major:
-            conditions.append(f"app_category_major = '{self.app_category_major}'")
+            # 如果app_category_major是数字，直接按ID筛选；如果是文本，按名称筛选
+            if self.app_category_major.isdigit():
+                conditions.append(f"app_category_major = {self.app_category_major}")
+            else:
+                # 按名称筛选，使用子查询获取对应的ID
+                conditions.append(f"app_category_major IN (SELECT id FROM app_category_major WHERE name = '{self.app_category_major}')")
         
         if conditions:
             return " WHERE " + " AND ".join(conditions)
@@ -282,46 +287,159 @@ class DataService:
     # === 应用分析查询 ===
     
     def get_app_major_analysis(self, limit: int = 10, filters: Optional[FilterConditions] = None) -> pd.DataFrame:
-        """获取应用大类分析数据"""
+        """获取应用大类分析数据（仅上行流量）"""
         where_clause = filters.build_where_clause() if filters else ""
+        
+        # 首先获取筛选条件下的总上行流量，用于计算占比
+        total_upstream_query = f"""
+            SELECT SUM(upstream_traffic) as total_upstream
+            FROM default.tbl_statistic_userapp_day t
+            {where_clause}
+        """
+        total_result = self.execute_query(total_upstream_query)
+        total_upstream = total_result.iloc[0]['total_upstream'] if not total_result.empty else 0
+        
         df = self.execute_query(f"""
             SELECT 
-                app_category_major,
-                SUM(total_traffic) as total_traffic,
+                t.app_category_major,
+                major.name as major_name,
+                SUM(t.upstream_traffic) as upstream_traffic,
                 COUNT(*) as session_count,
-                COUNT(DISTINCT user_account) as user_count
-            FROM default.tbl_statistic_userapp_day{where_clause}
-            GROUP BY app_category_major
-            ORDER BY total_traffic DESC
+                COUNT(DISTINCT t.user_account) as user_count
+            FROM default.tbl_statistic_userapp_day t
+            LEFT JOIN app_category_major major ON t.app_category_major = major.id
+            {where_clause}
+            GROUP BY t.app_category_major, major.name
+            ORDER BY upstream_traffic DESC
             LIMIT {limit}
         """)
         
         if not df.empty:
-            df['total_traffic_gb'] = df['total_traffic'] / (1024*1024*1024)
-            df['app_name'] = df['app_category_major'].astype(str) + "类应用"
+            df['upstream_traffic_gb'] = df['upstream_traffic'] / (1024*1024*1024)
+            # 计算上行流量占比
+            df['upstream_percentage'] = (df['upstream_traffic'] / total_upstream * 100) if total_upstream > 0 else 0
+            # 如果没有找到名称，使用ID作为备选
+            df['app_name'] = df['major_name'].fillna(df['app_category_major'].astype(str) + "类应用")
         
         return df
     
     def get_app_minor_analysis(self, limit: int = 20, filters: Optional[FilterConditions] = None) -> pd.DataFrame:
-        """获取应用小类分析数据"""
+        """获取应用小类分析数据（仅上行流量）"""
         where_clause = filters.build_where_clause() if filters else ""
+        
+        # 首先获取筛选条件下的总上行流量，用于计算占比
+        total_upstream_query = f"""
+            SELECT SUM(upstream_traffic) as total_upstream
+            FROM default.tbl_statistic_userapp_day t
+            {where_clause}
+        """
+        total_result = self.execute_query(total_upstream_query)
+        total_upstream = total_result.iloc[0]['total_upstream'] if not total_result.empty else 0
+        
         df = self.execute_query(f"""
             SELECT 
-                app_category_major,
-                app_category_minor,
-                SUM(total_traffic) as total_traffic,
-                COUNT(DISTINCT user_account) as user_count
-            FROM default.tbl_statistic_userapp_day{where_clause}
-            GROUP BY app_category_major, app_category_minor
-            ORDER BY total_traffic DESC
+                t.app_category_major,
+                t.app_category_minor,
+                major.name as major_name,
+                minor.name as minor_name,
+                SUM(t.upstream_traffic) as upstream_traffic,
+                COUNT(DISTINCT t.user_account) as user_count
+            FROM default.tbl_statistic_userapp_day t
+            LEFT JOIN app_category_major major ON t.app_category_major = major.id
+            LEFT JOIN app_category_minor minor ON t.app_category_minor = minor.id
+            {where_clause}
+            GROUP BY t.app_category_major, t.app_category_minor, major.name, minor.name
+            ORDER BY upstream_traffic DESC
             LIMIT {limit}
         """)
         
         if not df.empty:
-            df['total_traffic_gb'] = df['total_traffic'] / (1024*1024*1024)
+            df['upstream_traffic_gb'] = df['upstream_traffic'] / (1024*1024*1024)
+            # 计算上行流量占比
+            df['upstream_percentage'] = (df['upstream_traffic'] / total_upstream * 100) if total_upstream > 0 else 0
+            # 生成应用名称和标识
+            df['major_display'] = df['major_name'].fillna(df['app_category_major'].astype(str))
+            df['minor_display'] = df['minor_name'].fillna(df['app_category_minor'].astype(str))
+            df['应用名称'] = df['major_display'] + " - " + df['minor_display']
             df['应用标识'] = df['app_category_major'].astype(str) + "-" + df['app_category_minor'].astype(str)
         
         return df
+    
+    def get_app_category_top_users(self, limit_categories: int = 10, limit_users: int = 10, filters: Optional[FilterConditions] = None) -> pd.DataFrame:
+        """获取应用大类TOP10及每个大类中TOP10用户的详细分析"""
+        where_clause = filters.build_where_clause() if filters else ""
+        
+        # 首先获取上行流量TOP10的应用大类
+        top_categories_query = f"""
+            SELECT 
+                t.app_category_major,
+                major.name as major_name,
+                SUM(t.upstream_traffic) as total_upstream_traffic,
+                COUNT(DISTINCT t.user_account) as total_users
+            FROM default.tbl_statistic_userapp_day t
+            LEFT JOIN app_category_major major ON t.app_category_major = major.id
+            {where_clause}
+            GROUP BY t.app_category_major, major.name
+            ORDER BY total_upstream_traffic DESC
+            LIMIT {limit_categories}
+        """
+        
+        top_categories = self.execute_query(top_categories_query)
+        
+        if top_categories.empty:
+            return pd.DataFrame()
+        
+        # 为每个TOP应用大类获取其TOP用户
+        all_results = []
+        
+        for _, category_row in top_categories.iterrows():
+            category_id = category_row['app_category_major']
+            category_name = category_row['major_name'] if category_row['major_name'] else f"应用{category_id}"
+            category_total_traffic = category_row['total_upstream_traffic']
+            
+            # 构建额外的应用大类筛选条件
+            category_where_clause = where_clause
+            if category_where_clause:
+                category_where_clause += f" AND t.app_category_major = {category_id}"
+            else:
+                category_where_clause = f"WHERE t.app_category_major = {category_id}"
+            
+            # 获取该大类中的TOP用户
+            top_users_query = f"""
+                SELECT 
+                    t.user_account,
+                    SUM(t.upstream_traffic) as user_upstream_traffic,
+                    SUM(t.downstream_traffic) as user_downstream_traffic,
+                    SUM(t.total_traffic) as user_total_traffic,
+                    COUNT(*) as session_count
+                FROM default.tbl_statistic_userapp_day t
+                {category_where_clause}
+                GROUP BY t.user_account
+                ORDER BY user_upstream_traffic DESC
+                LIMIT {limit_users}
+            """
+            
+            top_users = self.execute_query(top_users_query)
+            
+            if not top_users.empty:
+                # 为每个用户添加类别信息
+                top_users['app_category_major'] = category_id
+                top_users['category_name'] = category_name
+                top_users['category_total_traffic'] = category_total_traffic
+                top_users['user_traffic_percentage'] = (top_users['user_upstream_traffic'] / category_total_traffic * 100) if category_total_traffic > 0 else 0
+                
+                # 转换单位为GB
+                top_users['user_upstream_gb'] = top_users['user_upstream_traffic'] / (1024*1024*1024)
+                top_users['user_downstream_gb'] = top_users['user_downstream_traffic'] / (1024*1024*1024)
+                top_users['user_total_gb'] = top_users['user_total_traffic'] / (1024*1024*1024)
+                
+                all_results.append(top_users)
+        
+        if all_results:
+            result_df = pd.concat(all_results, ignore_index=True)
+            return result_df
+        else:
+            return pd.DataFrame()
     
     # === 时间分析查询 ===
     
@@ -548,17 +666,70 @@ class DataService:
         return fig
     
     def create_app_traffic_bar_chart(self, limit: int = 10, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
-        """创建应用大类流量柱状图"""
+        """创建应用大类上行流量柱状图（含占比）"""
         app_major = self.get_app_major_analysis(limit, filters)
         if app_major.empty:
             return None
         
-        fig = px.bar(app_major, x='app_name', y='total_traffic_gb',
-                    title='应用大类流量消耗TOP 10',
-                    labels={'app_name': '应用大类', 'total_traffic_gb': '总流量(GB)'},
-                    color='total_traffic_gb',
-                    color_continuous_scale='Viridis')
-        fig.update_layout(xaxis_tickangle=45, font=dict(size=12), showlegend=False)
+        # 创建自定义文本，包含流量和占比
+        app_major['text_label'] = app_major.apply(
+            lambda row: f"{row['upstream_traffic_gb']:.1f}GB<br>({row['upstream_percentage']:.1f}%)", 
+            axis=1
+        )
+        
+        fig = px.bar(app_major, x='app_name', y='upstream_traffic_gb',
+                    title='应用大类上行流量消耗TOP 10（含占比）',
+                    labels={'app_name': '应用大类', 'upstream_traffic_gb': '上行流量(GB)'},
+                    color='upstream_traffic_gb',
+                    color_continuous_scale='Viridis',
+                    text='text_label')
+        
+        # 设置文本显示在柱状图上方
+        fig.update_traces(textposition='outside')
+        fig.update_layout(
+            xaxis_tickangle=45, 
+            font=dict(size=12), 
+            showlegend=False,
+            # 增加上边距以容纳文本
+            margin=dict(t=100)
+        )
+        return fig
+    
+    def create_app_traffic_pie_chart(self, limit: int = 10, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
+        """创建应用大类上行流量饼图（占比）"""
+        app_major = self.get_app_major_analysis(limit, filters)
+        if app_major.empty:
+            return None
+        
+        # 计算其他应用的占比
+        top_apps_percentage = app_major['upstream_percentage'].sum()
+        others_percentage = 100 - top_apps_percentage
+        
+        # 准备饼图数据
+        labels = app_major['app_name'].tolist()
+        values = app_major['upstream_percentage'].tolist()
+        
+        # 如果其他应用占比大于1%，则添加"其他"项
+        if others_percentage > 1:
+            labels.append('其他应用')
+            values.append(others_percentage)
+        
+        fig = px.pie(values=values, names=labels,
+                    title=f'应用大类上行流量占比TOP {limit}')
+        
+        # 设置显示格式
+        fig.update_traces(
+            textposition='inside',
+            textinfo='percent+label',
+            hovertemplate='<b>%{label}</b><br>占比: %{percent}<br>数值: %{value:.1f}%<extra></extra>'
+        )
+        
+        fig.update_layout(
+            font=dict(size=12),
+            showlegend=True,
+            legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.05)
+        )
+        
         return fig
     
     def create_app_users_bar_chart(self, limit: int = 10, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
@@ -777,13 +948,15 @@ class DataService:
         return df['user_account'].tolist() if not df.empty else []
     
     def get_available_app_categories(self) -> List[str]:
-        """获取可用的应用大类列表"""
+        """获取可用的应用大类列表（返回名称）"""
         df = self.execute_query("""
-            SELECT DISTINCT app_category_major 
-            FROM default.tbl_statistic_userapp_day 
-            ORDER BY app_category_major
+            SELECT DISTINCT major.name as category_name
+            FROM default.tbl_statistic_userapp_day t
+            LEFT JOIN app_category_major major ON t.app_category_major = major.id
+            WHERE major.name IS NOT NULL
+            ORDER BY major.name
         """)
-        return df['app_category_major'].astype(str).tolist() if not df.empty else []
+        return df['category_name'].tolist() if not df.empty else []
     
     def get_date_range(self) -> Dict[str, date]:
         """获取数据的日期范围"""
@@ -800,3 +973,80 @@ class DataService:
             'min_date': df.iloc[0]['min_date'],
             'max_date': df.iloc[0]['max_date']
         }
+    
+    # === 应用分类查询方法 ===
+    
+    def get_app_category_major_name(self, category_id: int) -> str:
+        """根据应用大类ID获取名称"""
+        try:
+            df = self.execute_query(f"""
+                SELECT name 
+                FROM app_category_major 
+                WHERE id = {category_id}
+            """)
+            return df.iloc[0]['name'] if not df.empty else str(category_id)
+        except:
+            return str(category_id)
+    
+    def get_app_category_minor_name(self, category_id: int) -> str:
+        """根据应用小类ID获取名称"""
+        try:
+            df = self.execute_query(f"""
+                SELECT name 
+                FROM app_category_minor 
+                WHERE id = {category_id}
+            """)
+            return df.iloc[0]['name'] if not df.empty else str(category_id)
+        except:
+            return str(category_id)
+    
+    def get_all_app_category_major(self) -> Dict[int, str]:
+        """获取所有应用大类的ID到名称映射"""
+        try:
+            df = self.execute_query("""
+                SELECT id, name 
+                FROM app_category_major 
+                ORDER BY id
+            """)
+            return dict(zip(df['id'], df['name'])) if not df.empty else {}
+        except:
+            return {}
+    
+    def get_all_app_category_minor(self) -> Dict[int, str]:
+        """获取所有应用小类的ID到名称映射"""
+        try:
+            df = self.execute_query("""
+                SELECT id, name 
+                FROM app_category_minor 
+                ORDER BY id
+            """)
+            return dict(zip(df['id'], df['name'])) if not df.empty else {}
+        except:
+            return {}
+    
+    def get_app_categories_with_names(self, filters: Optional[FilterConditions] = None) -> pd.DataFrame:
+        """获取带有分类名称的应用统计数据"""
+        where_clause = filters.build_where_clause() if filters else ""
+        
+        df = self.execute_query(f"""
+            SELECT 
+                t.app_category_major,
+                t.app_category_minor,
+                major.name as major_name,
+                minor.name as minor_name,
+                SUM(t.total_traffic) as total_traffic,
+                COUNT(*) as record_count
+            FROM default.tbl_statistic_userapp_day t
+            LEFT JOIN app_category_major major ON t.app_category_major = major.id
+            LEFT JOIN app_category_minor minor ON t.app_category_minor = minor.id
+            {where_clause}
+            GROUP BY t.app_category_major, t.app_category_minor, major.name, minor.name
+            ORDER BY total_traffic DESC
+        """)
+        
+        # 如果JOIN失败，用原始ID作为名称
+        if not df.empty:
+            df['major_name'] = df['major_name'].fillna(df['app_category_major'].astype(str))
+            df['minor_name'] = df['minor_name'].fillna(df['app_category_minor'].astype(str))
+        
+        return df

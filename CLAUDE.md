@@ -43,6 +43,9 @@ streamlit run streamlit_dashboard.py
 
 # Import CSV data to ClickHouse
 python import_csv_to_clickhouse.py
+
+# Import application category mappings
+python import_app_categories.py
 ```
 
 ### Database Configuration
@@ -51,7 +54,10 @@ Default ClickHouse connection:
 - Username: `default`
 - Password: `12345678`
 - Database: `default`
-- Table: `tbl_statistic_userapp_day`
+- Tables: 
+  - `tbl_statistic_userapp_day`: Main traffic data
+  - `app_category_major`: Application major category mappings (ID → Name)
+  - `app_category_minor`: Application minor category mappings (ID → Name)
 
 ## Data Schema
 
@@ -69,7 +75,13 @@ The `FilterConditions` class supports filtering by:
 - User account (dropdown selection)
 - IP type (IPv4/IPv6)
 - Date range (start/end dates)
-- Application major category
+- Application major category (by name or ID)
+
+### Application Category Filtering
+- **By Name**: Use Chinese names like "Web浏览", "即时通讯" for user-friendly filtering
+- **By ID**: Still supports numeric IDs like "4", "3" for backward compatibility
+- Automatic detection: numeric strings filter by ID, text strings filter by name
+- Uses sub-queries to convert names to IDs internally for efficient filtering
 
 All data service methods accept optional `filters` parameter. When modifying queries, ensure filtering is consistently applied.
 
@@ -78,7 +90,7 @@ All data service methods accept optional `filters` parameter. When modifying que
 The system provides these analytical views:
 - **Traffic Analysis**: Upload/download distribution, duration patterns, top users
 - **User Analysis**: Activity levels, consumption patterns, high-upload risk detection
-- **Application Analysis**: Category-based usage and popularity metrics
+- **Application Analysis**: Category-based usage and popularity metrics with human-readable names
 - **Time Analysis**: Temporal patterns and trend monitoring
 
 ## Development Patterns
@@ -88,6 +100,28 @@ The system provides these analytical views:
 2. Add corresponding chart generation method if needed
 3. Integrate into appropriate Streamlit tab
 4. Update PDF generator to include new analysis
+
+### Application Category Mapping
+The system includes application category mapping tables:
+- Use `get_app_category_major_name(id)` to get major category names
+- Use `get_app_category_minor_name(id)` to get minor category names
+- Use `get_app_categories_with_names()` for JOIN queries with category names
+- Use `get_available_app_categories()` to get user-selectable category names
+- Import new category data using `import_app_categories.py`
+- Filtering by category name is now supported and recommended for user interfaces
+
+### Application Analysis Display
+The application analysis pages focus on upstream traffic analysis with comprehensive percentage visualization:
+- **Traffic Focus**: Only analyzes upstream (upload) traffic, not total traffic
+- **Percentage Calculation**: Shows each app's percentage of total upstream traffic in the filtered time period
+- **Multi-Chart Display**: 
+  - Bar chart with traffic values and percentage labels on each bar
+  - Pie chart showing visual percentage distribution with "Others" category
+  - User count analysis bar chart
+- **Tables**: Show app names, upstream traffic (GB), percentage, and user count
+- **Visual Enhancement**: Bar charts include data labels like "15430.6GB (32.5%)" above each bar
+- **Filtering**: Users can filter by category names with dynamic percentage recalculation
+- **Data Methods**: `get_app_major_analysis()`, `get_app_minor_analysis()`, and `create_app_traffic_pie_chart()` provide comprehensive analysis
 
 ### Chart Generation
 - All charts use Plotly for consistency
