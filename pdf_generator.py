@@ -290,11 +290,49 @@ def generate_complete_pdf_report(filters=None):
         # === 5. 时间分析 ===
         story.append(Paragraph("5. 时间分析", heading_style))
         
-        # 5.1 数据统计时间分布
-        story.append(Paragraph("5.1 数据统计时间分布", subheading_style))
-        fig = data_service.create_time_series_chart(filters)
+        # 5.1 总体流量时间趋势
+        story.append(Paragraph("5.1 总体流量时间趋势", subheading_style))
+        fig = data_service.create_flexible_time_chart(
+            group_by_field='none',
+            metric_type='traffic',
+            traffic_type='total',
+            filters=filters
+        )
         if fig:
             story.append(create_plotly_image(fig, width=600, height=400))
+        
+        # 5.2 IP类型流量时间分布
+        story.append(Paragraph("5.2 IPv4 vs IPv6流量时间分布", subheading_style))
+        fig = data_service.create_flexible_time_chart(
+            group_by_field='ip_type',
+            metric_type='traffic', 
+            traffic_type='total',
+            filters=filters
+        )
+        if fig:
+            story.append(create_plotly_image(fig, width=600, height=400))
+        
+        # 5.3 会话数时间趋势
+        story.append(Paragraph("5.3 会话数时间趋势", subheading_style))
+        fig = data_service.create_flexible_time_chart(
+            group_by_field='none',
+            metric_type='session_count',
+            filters=filters
+        )
+        if fig:
+            story.append(create_plotly_image(fig, width=600, height=400))
+        
+        # 5.4 TOP用户流量时间趋势
+        story.append(Paragraph("5.4 TOP用户流量时间趋势", subheading_style))
+        fig = data_service.create_flexible_time_chart(
+            group_by_field='user_account',
+            metric_type='traffic',
+            traffic_type='total',
+            filters=filters
+        )
+        if fig:
+            story.append(create_plotly_image(fig, width=600, height=400))
+        
         
         story.append(PageBreak())
         
@@ -323,9 +361,14 @@ def generate_complete_pdf_report(filters=None):
     
     4. 应用分析：应用大类流量和用户数统计分析
     
-    5. 时间分析：数据统计时间分布和趋势分析
+    5. 时间分析：多维度时间趋势分析，包括：
+       - 总体流量时间趋势
+       - IPv4 vs IPv6流量时间分布对比
+       - 会话数时间变化趋势
+       - TOP用户流量时间趋势分析
     
     本报告包含所有Dashboard页面的图表和数据，提供全面的流量分析视角。
+    新增的灵活时间分析功能支持多维度分组和指标选择，便于深入了解数据的时间变化规律。
     建议定期生成此报告，监控网络使用趋势和异常行为。
     """
     

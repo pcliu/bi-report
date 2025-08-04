@@ -344,6 +344,83 @@ class DataService:
         
         return df
     
+    def get_flexible_time_analysis(self, 
+                                 group_by_field: str = 'none',
+                                 metric_type: str = 'session_count',
+                                 traffic_type: str = 'total',
+                                 filters: Optional[FilterConditions] = None) -> pd.DataFrame:
+        """
+        获取灵活的时间分析数据
+        
+        Args:
+            group_by_field: 分组字段 ('none', 'ip_type', 'app_category_major', 'user_account')
+            metric_type: 指标类型 ('session_count', 'traffic', 'session_duration')
+            traffic_type: 流量类型 ('total', 'upstream', 'downstream') - 仅当metric_type为'traffic'时使用
+            filters: 筛选条件
+        """
+        where_clause = filters.build_where_clause() if filters else ""
+        
+        # 构建GROUP BY字段
+        if group_by_field == 'none':
+            group_by_clause = "toDate(parseDateTimeBestEffort(stat_time)) as date_key"
+            group_by_fields = "date_key"
+            legend_field = "'总体' as category"
+        elif group_by_field == 'ip_type':
+            group_by_clause = """toDate(parseDateTimeBestEffort(stat_time)) as date_key,
+                               CASE WHEN ip_type = 0 THEN 'IPv4' ELSE 'IPv6' END as category"""
+            group_by_fields = "date_key, category"
+        elif group_by_field == 'app_category_major':
+            group_by_clause = """toDate(parseDateTimeBestEffort(stat_time)) as date_key,
+                               toString(app_category_major) || '类应用' as category"""
+            group_by_fields = "date_key, category"
+        elif group_by_field == 'user_account':
+            # 只显示TOP用户避免过多线条
+            top_users_subquery = f"""
+                SELECT user_account 
+                FROM default.tbl_statistic_userapp_day{where_clause}
+                GROUP BY user_account 
+                ORDER BY SUM(total_traffic) DESC 
+                LIMIT 10
+            """
+            group_by_clause = f"""toDate(parseDateTimeBestEffort(stat_time)) as date_key,
+                                user_account as category"""
+            group_by_fields = "date_key, category"
+            where_clause += f" AND user_account IN ({top_users_subquery})" if where_clause else f" WHERE user_account IN ({top_users_subquery})"
+        else:
+            group_by_clause = "toDate(parseDateTimeBestEffort(stat_time)) as date_key"
+            group_by_fields = "date_key"
+            legend_field = "'总体' as category"
+        
+        # 构建聚合指标
+        if metric_type == 'session_count':
+            metric_clause = "COUNT(*) as value"
+        elif metric_type == 'traffic':
+            if traffic_type == 'upstream':
+                metric_clause = "SUM(upstream_traffic) / (1024*1024*1024) as value"
+            elif traffic_type == 'downstream':
+                metric_clause = "SUM(downstream_traffic) / (1024*1024*1024) as value"
+            else:  # total
+                metric_clause = "SUM(total_traffic) / (1024*1024*1024) as value"
+        elif metric_type == 'session_duration':
+            metric_clause = "AVG(duration) / 1000000 as value"  # 转换为秒
+        else:
+            metric_clause = "COUNT(*) as value"
+        
+        # 如果没有category字段，添加默认的
+        if 'category' not in group_by_clause:
+            select_clause = f"{group_by_clause}, {legend_field}, {metric_clause}"
+        else:
+            select_clause = f"{group_by_clause}, {metric_clause}"
+        
+        query = f"""
+            SELECT {select_clause}
+            FROM default.tbl_statistic_userapp_day{where_clause}
+            GROUP BY {group_by_fields}
+            ORDER BY date_key ASC, category ASC
+        """
+        
+        return self.execute_query(query)
+    
     def get_ip_type_distribution(self, filters: Optional[FilterConditions] = None) -> pd.DataFrame:
         """获取IPv4和IPv6分布"""
         where_clause = filters.build_where_clause() if filters else ""
@@ -514,6 +591,129 @@ class DataService:
                          xaxis_title='统计时间', yaxis_title='记录数',
                          font=dict(size=12),
                          showlegend=True)
+        return fig
+    
+    def create_flexible_time_chart(self, 
+                                 group_by_field: str = 'none',
+                                 metric_type: str = 'session_count',
+                                 traffic_type: str = 'total',
+                                 filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
+        """
+        创建灵活的时间分析图表
+        
+        Args:
+            group_by_field: 分组字段 ('none', 'ip_type', 'app_category_major', 'user_account')
+            metric_type: 指标类型 ('session_count', 'traffic', 'session_duration')
+            traffic_type: 流量类型 ('total', 'upstream', 'downstream')
+            filters: 筛选条件
+        """
+        time_data = self.get_flexible_time_analysis(group_by_field, metric_type, traffic_type, filters)
+        if time_data.empty:
+            return None
+        
+        # 构建图表标题和轴标签
+        group_labels = {
+            'none': '总体',
+            'ip_type': 'IP类型',
+            'app_category_major': '应用大类',
+            'user_account': '用户'
+        }
+        
+        metric_labels = {
+            'session_count': '会话数',
+            'traffic': '流量(GB)',
+            'session_duration': '平均会话时长(秒)'
+        }
+        
+        traffic_labels = {
+            'total': '总流量',
+            'upstream': '上行流量', 
+            'downstream': '下行流量'
+        }
+        
+        # 构建标题
+        group_label = group_labels.get(group_by_field, '总体')
+        if metric_type == 'traffic':
+            metric_label = traffic_labels.get(traffic_type, '总流量')
+        else:
+            metric_label = metric_labels.get(metric_type, '会话数')
+        
+        if group_by_field == 'none':
+            title = f'时间趋势 - {metric_label}'
+        else:
+            title = f'时间趋势 - {metric_label} (按{group_label}分组)'
+        
+        # 创建图表
+        fig = go.Figure()
+        
+        # 如果有分组，创建多条线
+        if 'category' in time_data.columns:
+            categories = time_data['category'].unique()
+            colors = px.colors.qualitative.Set1
+            
+            for i, category in enumerate(categories):
+                category_data = time_data[time_data['category'] == category]
+                color = colors[i % len(colors)]
+                
+                fig.add_trace(go.Scatter(
+                    x=category_data['date_key'],
+                    y=category_data['value'],
+                    mode='lines+markers',
+                    name=str(category),
+                    line=dict(color=color, width=2),
+                    marker=dict(color=color, size=6)
+                ))
+        else:
+            # 单条线
+            fig.add_trace(go.Scatter(
+                x=time_data['date_key'],
+                y=time_data['value'],
+                mode='lines+markers',
+                name=metric_label,
+                line=dict(color='#3498db', width=3),
+                marker=dict(color='#e74c3c', size=8)
+            ))
+        
+        # 更新布局
+        fig.update_layout(
+            title=title,
+            xaxis_title='日期',
+            yaxis_title=metric_labels.get(metric_type, '值'),
+            font=dict(size=12),
+            showlegend=True if 'category' in time_data.columns and len(time_data['category'].unique()) > 1 else False,
+            hovermode='x unified'
+        )
+        
+        # 设置x轴格式，避免重复日期标签
+        if not time_data.empty:
+            # 获取日期范围
+            unique_dates = time_data['date_key'].unique()
+            date_count = len(unique_dates)
+            
+            # 根据日期数量调整显示
+            if date_count <= 7:
+                # 少于7天，显示所有日期
+                dtick = "D1"
+                tickangle = 0
+            elif date_count <= 30:
+                # 少于30天，每2天显示一个
+                dtick = "D2" 
+                tickangle = 45
+            else:
+                # 超过30天，每周显示一个
+                dtick = "D7"
+                tickangle = 45
+                
+            fig.update_xaxes(
+                tickformat='%m-%d',  # 简化日期格式
+                dtick=dtick,
+                tickmode='linear',
+                tickangle=tickangle,
+                showgrid=True,
+                gridwidth=1,
+                gridcolor='lightgray'
+            )
+        
         return fig
     
     def create_ip_type_pie_chart(self, filters: Optional[FilterConditions] = None, by_traffic: bool = True) -> Optional[go.Figure]:

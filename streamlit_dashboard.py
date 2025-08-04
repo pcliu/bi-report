@@ -77,6 +77,7 @@ def get_data_service():
         st.error(f"无法连接到数据服务: {str(e)}")
         return None
 
+
 def create_filter_panel(data_service: DataService) -> FilterConditions:
     """创建筛选面板并返回筛选条件"""
     st.sidebar.markdown("## 🔍 筛选条件")
@@ -373,7 +374,7 @@ def main():
         
         st.markdown("---")
         
-        # 使用标签页进行导航 - 放在基础统计信息下面
+        # 使用标签页进行导航
         tab1, tab2, tab3, tab4 = st.tabs(["🌊 流量分析", "👥 用户分析", "📱 应用分析", "⏰ 时间分析"])
         
         with tab1:
@@ -559,14 +560,130 @@ def show_time_analysis(data_service, filters):
     #st.markdown("### ⏰ 时间分析")
     
     try:
-        st.subheader("数据统计时间分布")
-        fig = data_service.create_time_series_chart(filters)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
+        # 检查data_service是否有新方法
+        if not hasattr(data_service, 'create_flexible_time_chart'):
+            st.error("数据服务缺少新的时间分析方法，请重启应用")
+            return
         
-        time_data = data_service.get_time_analysis(filters)
-        if not time_data.empty:
-            st.dataframe(time_data)
+        # 时间分析主体布局：左侧图表+表格，右侧控制面板
+        # st.subheader("📈 时间趋势分析")
+        
+        # 创建左右三列：左侧内容区，中间分隔线，右侧控制面板
+        content_col, divider_col, control_col = st.columns([3, 0.05, 1])
+        
+        # 中间分隔线
+        with divider_col:
+            st.markdown("""
+            <div style="
+                border-left: 1px solid #ddd; 
+                height: 800px; 
+                margin: 0 auto;
+            "></div>
+            """, unsafe_allow_html=True)
+        
+        # 右侧控制面板
+        with control_col:
+            st.markdown("### 参数设置")
+            
+            # 分组字段选择
+            group_options = {
+                'none': '无分组(总体)',
+                'ip_type': 'IP类型',
+                'app_category_major': '应用大类',
+                'user_account': '用户(TOP10)'
+            }
+            selected_group = st.selectbox(
+                "分组字段",
+                options=list(group_options.keys()),
+                format_func=lambda x: group_options[x],
+                key="time_analysis_group",
+                index=0
+            )
+            
+            # 指标类型选择
+            metric_options = {
+                'session_count': '会话数',
+                'traffic': '流量',
+                'session_duration': '平均会话时长'
+            }
+            selected_metric = st.selectbox(
+                "纵轴指标",
+                options=list(metric_options.keys()),
+                format_func=lambda x: metric_options[x],
+                key="time_analysis_metric",
+                index=0
+            )
+            
+            # 流量类型选择（仅当指标为流量时显示）
+            if selected_metric == 'traffic':
+                traffic_options = {
+                    'total': '总流量',
+                    'upstream': '上行流量',
+                    'downstream': '下行流量'
+                }
+                selected_traffic = st.selectbox(
+                    "流量类型",
+                    options=list(traffic_options.keys()),
+                    format_func=lambda x: traffic_options[x],
+                    key="time_analysis_traffic",
+                    index=0
+                )
+            else:
+                selected_traffic = 'total'
+            
+            # 显示说明信息
+            st.markdown("**💡 说明**")
+            if selected_group == 'user_account':
+                st.info("用户分组显示流量TOP10的用户，避免图表过于复杂。")
+            else:
+                st.info("横轴：日期时间\n纵轴：所选指标")
+        
+        with content_col:
+            # 图表区域
+            st.markdown("#### 📈 趋势图表")
+            fig = data_service.create_flexible_time_chart(
+                group_by_field=selected_group,
+                metric_type=selected_metric,
+                traffic_type=selected_traffic,
+                filters=filters
+            )
+            
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("没有找到符合条件的数据")
+            
+            # 表格区域
+            st.markdown("#### 📋 详细数据")
+            time_data = data_service.get_flexible_time_analysis(
+                group_by_field=selected_group,
+                metric_type=selected_metric,
+                traffic_type=selected_traffic,
+                filters=filters
+            )
+            
+            if not time_data.empty:
+                # 格式化显示
+                display_df = time_data.copy()
+                if 'value' in display_df.columns:
+                    if selected_metric == 'traffic':
+                        display_df['value'] = display_df['value'].round(3)
+                        display_df.rename(columns={'value': f'{metric_options[selected_metric]}(GB)'}, inplace=True)
+                    elif selected_metric == 'session_duration':
+                        display_df['value'] = display_df['value'].round(2)
+                        display_df.rename(columns={'value': f'{metric_options[selected_metric]}(秒)'}, inplace=True)
+                    else:
+                        display_df.rename(columns={'value': metric_options[selected_metric]}, inplace=True)
+                
+                if 'date_key' in display_df.columns:
+                    display_df.rename(columns={'date_key': '日期'}, inplace=True)
+                if 'category' in display_df.columns:
+                    display_df.rename(columns={'category': '分组'}, inplace=True)
+                
+                st.dataframe(display_df, use_container_width=True)
+            else:
+                st.warning("没有找到符合条件的数据")
+        
     
     except Exception as e:
         st.error(f"时间分析数据获取失败: {str(e)}")
