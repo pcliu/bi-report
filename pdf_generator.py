@@ -87,15 +87,22 @@ def create_plotly_image(fig, width=600, height=400):
                 if hasattr(trace, 'marker'):
                     trace.marker.color = colors_list[i % len(colors_list)]
         
-        # 为散点图设置颜色
+        # 为散点图设置颜色 - 保留原有的颜色映射
         if 'Scatter' in str(fig.data):
-            colors_list = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12']
             for i, trace in enumerate(fig.data):
                 if hasattr(trace, 'marker'):
-                    trace.marker.color = colors_list[i % len(colors_list)]
+                    # 只有当marker没有颜色映射时才设置固定颜色
+                    if not hasattr(trace.marker, 'color') or trace.marker.color is None:
+                        colors_list = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12']
+                        trace.marker.color = colors_list[i % len(colors_list)]
+                    
+                    # 确保散点图大小设置正确
                     if hasattr(trace.marker, 'size'):
                         trace.marker.sizemode = 'diameter'
-                        trace.marker.sizeref = 0.1
+                        trace.marker.sizeref = 2.0  # 调整大小参考值
+                        # 确保最小大小可见
+                        if hasattr(trace.marker, 'sizemin'):
+                            trace.marker.sizemin = 4
         
         img_bytes = pio.to_image(fig, format="png", width=width, height=height, scale=2, engine="kaleido")
         img_buffer = io.BytesIO(img_bytes)

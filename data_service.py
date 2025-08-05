@@ -655,14 +655,46 @@ class DataService:
         if upload_heavy_users.empty:
             return None
         
+        # 对大小进行归一化处理，避免气泡过大
+        import numpy as np
+        min_size = upload_heavy_users['upstream_gb'].min()
+        max_size = upload_heavy_users['upstream_gb'].max()
+        
+        # 使用对数缩放来减少大小差异
+        if max_size > min_size:
+            # 对数变换 + 归一化到合理范围 (5-30)
+            upload_heavy_users['normalized_size'] = np.log1p(upload_heavy_users['upstream_gb'])
+            min_norm = upload_heavy_users['normalized_size'].min()
+            max_norm = upload_heavy_users['normalized_size'].max()
+            upload_heavy_users['bubble_size'] = 5 + (upload_heavy_users['normalized_size'] - min_norm) / (max_norm - min_norm) * 25
+        else:
+            upload_heavy_users['bubble_size'] = 15  # 默认大小
+        
         fig = px.scatter(upload_heavy_users, 
                        x='session_count', y='upload_ratio',
-                       size='upstream_gb', hover_name='user_account',
+                       size='bubble_size', hover_name='user_account',
                        title='用户活跃度 vs 上传比例',
                        labels={'session_count': '会话数', 'upload_ratio': '上传/下载比例'},
                        color='upstream_gb',
-                       color_continuous_scale='Reds')
-        fig.update_layout(font=dict(size=12))
+                       color_continuous_scale='Reds',
+                       hover_data={'upstream_gb': ':.2f', 'bubble_size': False})
+        
+        # 更新布局和大小设置
+        fig.update_layout(
+            font=dict(size=12),
+            showlegend=False
+        )
+        
+        # 设置更合理的大小参考
+        fig.update_traces(
+            marker=dict(
+                sizemode='diameter',
+                sizeref=2,
+                sizemin=4,
+                opacity=0.7
+            )
+        )
+        
         return fig
     
     def create_app_traffic_bar_chart(self, limit: int = 10, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
