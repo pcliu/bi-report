@@ -562,48 +562,41 @@ def show_app_analysis(data_service, filters):
             
             st.info("📋 **表格说明**: 显示上行流量消耗最大的前20个应用，包含具体的应用名称、分类信息和在指定时间内的流量占比。")
         
-        # 应用大类TOP10及其客户TOP10分析
+        # 应用大类TOP10及其客户TOP10分析 - 合并表格
         st.subheader("📊 应用大类TOP10 & 客户流量详情")
         category_users = data_service.get_app_category_top_users(10, 10, filters)
         
         if not category_users.empty:
-            # 按应用大类分组显示
-            categories = category_users['category_name'].unique()
+            # 准备合并表格的数据
+            display_df = category_users[['category_name', 'user_account', 'user_upstream_gb', 'user_downstream_gb', 
+                                       'user_total_gb', 'session_count', 'user_traffic_percentage']].copy()
+            display_df.columns = ['应用大类', '用户账号', '上行流量(GB)', '下行流量(GB)', '总流量(GB)', '会话数', '占大类比例(%)']
             
-            for category in categories:
-                category_data = category_users[category_users['category_name'] == category]
-                
-                if not category_data.empty:
-                    # 获取大类总流量
-                    category_total_gb = category_data.iloc[0]['category_total_traffic'] / (1024*1024*1024)
-                    
-                    # 创建可展开的部分
-                    with st.expander(f"🔍 {category} (总上行流量: {category_total_gb:.2f}GB)", expanded=False):
-                        # 显示该大类中的TOP10用户
-                        display_df = category_data[['user_account', 'user_upstream_gb', 'user_downstream_gb', 
-                                                  'user_total_gb', 'session_count', 'user_traffic_percentage']].copy()
-                        display_df.columns = ['用户账号', '上行流量(GB)', '下行流量(GB)', '总流量(GB)', '会话数', '占大类比例(%)']
-                        
-                        # 格式化数据
-                        display_df['上行流量(GB)'] = display_df['上行流量(GB)'].round(3)
-                        display_df['下行流量(GB)'] = display_df['下行流量(GB)'].round(3)
-                        display_df['总流量(GB)'] = display_df['总流量(GB)'].round(3)
-                        display_df['占大类比例(%)'] = display_df['占大类比例(%)'].round(2)
-                        
-                        st.dataframe(display_df, use_container_width=True)
-                        
-                        # 添加统计信息
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("TOP10用户数", len(category_data))
-                        with col2:
-                            top10_upstream = category_data['user_upstream_gb'].sum()
-                            st.metric("TOP10总上行流量", f"{top10_upstream:.2f}GB")
-                        with col3:
-                            top10_percentage = (top10_upstream / category_total_gb * 100) if category_total_gb > 0 else 0
-                            st.metric("TOP10占大类比例", f"{top10_percentage:.1f}%")
+            # 格式化数据
+            display_df['上行流量(GB)'] = display_df['上行流量(GB)'].round(3)
+            display_df['下行流量(GB)'] = display_df['下行流量(GB)'].round(3)
+            display_df['总流量(GB)'] = display_df['总流量(GB)'].round(3)
+            display_df['占大类比例(%)'] = display_df['占大类比例(%)'].round(2)
             
-            st.info("📋 **表格说明**: 显示上行流量TOP10的应用大类，以及每个大类中上行流量TOP10的用户详情。点击展开可查看具体用户数据。")
+            # 显示合并表格
+            st.dataframe(display_df, use_container_width=True)
+            
+            # 添加汇总统计信息
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                total_categories = category_users['category_name'].nunique()
+                st.metric("应用大类数", total_categories)
+            with col2:
+                total_users = len(category_users)
+                st.metric("总用户数", total_users)
+            with col3:
+                total_upstream = category_users['user_upstream_gb'].sum()
+                st.metric("总上行流量", f"{total_upstream:.2f}GB")
+            with col4:
+                avg_sessions = category_users['session_count'].mean()
+                st.metric("平均会话数", f"{avg_sessions:.1f}")
+            
+            st.info("📋 **表格说明**: 显示上行流量TOP10应用大类中每个大类的TOP10用户详情。表格按应用大类分组，每个大类显示其TOP10用户的流量数据和占比。")
         else:
             st.warning("未找到符合条件的应用大类和用户数据")
     
