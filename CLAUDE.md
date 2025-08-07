@@ -153,9 +153,55 @@ The system assumes ClickHouse is running and accessible. For CSV imports:
 
 All database connections use connection pooling through `clickhouse_connect` library with lazy initialization pattern in `DataService`.
 
+## Docker Deployment
+
+The system supports full containerization with Docker Compose for production deployment:
+
+### Container Architecture
+- **bi-app**: Python/Streamlit application container with Chinese font support
+- **clickhouse**: ClickHouse database server with automatic initialization
+- **Networking**: Bridge network with service discovery
+- **Volumes**: Persistent storage for database and application data
+
+### Docker Commands
+```bash
+# Build Docker images
+./build-image.sh [version]            # Build application image
+./build-image.sh v1.0 --optimized     # Build with optimization
+
+# Export for distribution
+./export-images.sh [version]          # Create complete deployment package
+
+# Complete release workflow
+./release.sh patch                    # Bump patch version and create full release
+./release.sh minor                    # Bump minor version
+./release.sh major                    # Bump major version
+./release.sh 1.2.3                    # Set specific version
+
+# Local development
+docker-compose up --build -d          # Build and start all services
+docker-compose down -v                # Stop and remove volumes (fresh start)
+```
+
+### Distribution Package
+The export script creates self-contained deployment packages including:
+- Pre-built Docker images (bi-report + ClickHouse)
+- Modified docker-compose.yml for production use
+- Quick-start scripts with automatic data volume cleanup
+- Category mapping data files for automatic import
+- Complete documentation and usage instructions
+
+### Database Initialization
+- Automatic table creation via SQL scripts in `/docker-entrypoint-initdb.d/`
+- Category data import handled by application startup script
+- Volume cleanup in distribution packages ensures proper initialization
+- Health checks ensure services start in correct order
+
 ## Memorized Commands
 
 - Start dashboard: `source .venv/bin/activate && streamlit run streamlit_dashboard.py`
+- Docker build: `./build-image.sh latest`
+- Docker export: `./export-images.sh latest`
 
 ## Date Formatting Considerations
 - When handling date formats in the project, pay special attention to:

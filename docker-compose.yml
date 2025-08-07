@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: bi-report-clickhouse
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+      CLICKHOUSE_PASSWORD: 12345678
+    ports:
+      - "8123:8123"  # HTTP interface (for web clients like tabix)
+      - "9000:9000"  # Native interface
+      - "9009:9009"  # HTTP interface with inter-server replication
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+      - ./create_app_category_tables.sql:/docker-entrypoint-initdb.d/01-create-tables.sql
+      - ./app_catagory_major.csv:/docker-entrypoint-initdb.d/app_catagory_major.csv
+      - ./app_catagory_minor.csv:/docker-entrypoint-initdb.d/app_catagory_minor.csv
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - bi-network
+
+  bi-app:
+    build: .
+    image: bi-report:${BI_VERSION:-latest}
+    container_name: bi-report-app
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "8501:8501"  # Streamlit web interface
+    environment:
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=12345678
+      - CLICKHOUSE_DATABASE=default
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - bi-network
+
+volumes:
+  clickhouse_data:
+    driver: local
+  clickhouse_logs:
+    driver: local
+
+networks:
+  bi-network:
+    driver: bridge

@@ -6,13 +6,14 @@ CSV数据导入ClickHouse脚本
 import pandas as pd
 import clickhouse_connect
 from datetime import datetime
+import os
 
 def main():
-    # ClickHouse连接配置
-    host = '127.0.0.1'
-    port = 8123
-    username = 'default'
-    password = '12345678'
+    # ClickHouse连接配置（从环境变量读取）
+    host = os.getenv('CLICKHOUSE_HOST', '127.0.0.1')
+    port = int(os.getenv('CLICKHOUSE_PORT', '8123'))
+    username = os.getenv('CLICKHOUSE_USER', 'default')
+    password = os.getenv('CLICKHOUSE_PASSWORD', '12345678')
     
     # CSV文件路径
     csv_file = 'tbl_statistic_userapp_day_2025-07-09_00_00_00.csv'

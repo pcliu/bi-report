@@ -10,6 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from typing import Optional, Dict, Any, List
 from datetime import datetime, date
+import os
 
 
 class FilterConditions:
@@ -92,12 +93,12 @@ class FilterConditions:
 class DataService:
     """统一数据服务层，提供所有分析所需的数据查询方法"""
     
-    def __init__(self, host='127.0.0.1', port=8123, username='default', password='12345678'):
+    def __init__(self, host=None, port=None, username=None, password=None):
         """初始化数据库连接"""
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
+        self.host = host or os.getenv('CLICKHOUSE_HOST', '127.0.0.1')
+        self.port = int(port or os.getenv('CLICKHOUSE_PORT', '8123'))
+        self.username = username or os.getenv('CLICKHOUSE_USER', 'default')
+        self.password = password or os.getenv('CLICKHOUSE_PASSWORD', '12345678')
         self._client = None
     
     @property
@@ -488,9 +489,10 @@ class DataService:
                                CASE WHEN ip_type = 0 THEN 'IPv4' ELSE 'IPv6' END as category"""
             group_by_fields = "date_key, category"
         elif group_by_field == 'app_category_major':
-            group_by_clause = """toDate(parseDateTimeBestEffort(stat_time)) as date_key,
-                               toString(app_category_major) || '类应用' as category"""
-            group_by_fields = "date_key, category"
+            group_by_clause = """toDate(parseDateTimeBestEffort(t.stat_time)) as date_key,
+                               t.app_category_major,
+                               COALESCE(major.name, toString(t.app_category_major) || '类应用') as category"""
+            group_by_fields = "date_key, t.app_category_major, category"
         elif group_by_field == 'user_account':
             # 只显示TOP用户避免过多线条
             top_users_subquery = f"""
@@ -514,13 +516,13 @@ class DataService:
             metric_clause = "COUNT(*) as value"
         elif metric_type == 'traffic':
             if traffic_type == 'upstream':
-                metric_clause = "SUM(upstream_traffic) / (1024*1024*1024) as value"
+                metric_clause = f"SUM({'t.' if group_by_field == 'app_category_major' else ''}upstream_traffic) / (1024*1024*1024) as value"
             elif traffic_type == 'downstream':
-                metric_clause = "SUM(downstream_traffic) / (1024*1024*1024) as value"
+                metric_clause = f"SUM({'t.' if group_by_field == 'app_category_major' else ''}downstream_traffic) / (1024*1024*1024) as value"
             else:  # total
-                metric_clause = "SUM(total_traffic) / (1024*1024*1024) as value"
+                metric_clause = f"SUM({'t.' if group_by_field == 'app_category_major' else ''}total_traffic) / (1024*1024*1024) as value"
         elif metric_type == 'session_duration':
-            metric_clause = "AVG(duration) / 1000000 as value"  # 转换为秒
+            metric_clause = f"AVG({'t.' if group_by_field == 'app_category_major' else ''}duration) / 1000000 as value"  # 转换为秒
         else:
             metric_clause = "COUNT(*) as value"
         
@@ -530,12 +532,25 @@ class DataService:
         else:
             select_clause = f"{group_by_clause}, {metric_clause}"
         
-        query = f"""
-            SELECT {select_clause}
-            FROM default.tbl_statistic_userapp_day{where_clause}
-            GROUP BY {group_by_fields}
-            ORDER BY date_key ASC, category ASC
-        """
+        # 构建查询，如果是应用大类分组则需要JOIN
+        if group_by_field == 'app_category_major':
+            # 为app_category_major分组添加JOIN查询，需要修改where_clause中的表引用
+            table_where_clause = where_clause.replace('app_category_major', 't.app_category_major').replace('user_account', 't.user_account').replace('ip_type', 't.ip_type').replace('stat_time', 't.stat_time') if where_clause else ""
+            query = f"""
+                SELECT {select_clause}
+                FROM default.tbl_statistic_userapp_day t
+                LEFT JOIN default.app_category_major major ON t.app_category_major = major.id
+                {table_where_clause}
+                GROUP BY {group_by_fields}
+                ORDER BY date_key ASC, category ASC
+            """
+        else:
+            query = f"""
+                SELECT {select_clause}
+                FROM default.tbl_statistic_userapp_day{where_clause}
+                GROUP BY {group_by_fields}
+                ORDER BY date_key ASC, category ASC
+            """
         
         return self.execute_query(query)
     
