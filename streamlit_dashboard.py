@@ -9,7 +9,7 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import datetime, date
-from data_service import DataService, FilterConditions
+from csv_data_service import CSVDataService, FilterConditions
 from pdf_generator import generate_complete_pdf_report
 
 # 页面配置
@@ -72,13 +72,13 @@ st.markdown("""
 def get_data_service():
     """获取数据服务实例"""
     try:
-        return DataService()
+        return CSVDataService(data_folder="./")
     except Exception as e:
-        st.error(f"无法连接到数据服务: {str(e)}")
+        st.error(f"CSV数据加载失败: {str(e)}")
         return None
 
 
-def create_filter_panel(data_service: DataService) -> FilterConditions:
+def create_filter_panel(data_service: CSVDataService) -> FilterConditions:
     """创建筛选面板并返回筛选条件"""
     st.sidebar.markdown("## 🔍 筛选条件")
     
@@ -213,60 +213,42 @@ def create_filter_panel(data_service: DataService) -> FilterConditions:
     
     return filters
 
-def import_csv_data(uploaded_file, data_service: DataService):
-    """导入CSV数据到ClickHouse数据库"""
+def show_data_info(data_service: CSVDataService):
+    """显示CSV数据信息"""
     try:
-        # 读取上传的CSV文件
-        content = uploaded_file.read()
-        csv_content = content.decode('utf-8')
+        # 获取基础统计信息
+        stats = data_service.get_basic_stats()
         
-        # 创建DataFrame，指定列名
-        column_names = [
-            'user_account', 'ip_type', 'app_category_major', 'app_category_minor',
-            'upstream_traffic', 'downstream_traffic', 'total_traffic', 
-            'duration', 'stat_time'
-        ]
+        st.subheader("📊 数据概览")
+        col1, col2, col3, col4 = st.columns(4)
         
-        # 使用StringIO读取CSV数据
-        df = pd.read_csv(io.StringIO(csv_content), header=None, names=column_names)
+        with col1:
+            st.metric("总记录数", f"{stats['total_records']:,}")
+        with col2:
+            st.metric("用户数", f"{stats['total_users']:,}")
+        with col3:
+            st.metric("总流量(GB)", f"{stats['total_traffic_gb']:.2f}")
+        with col4:
+            st.metric("应用大类数", f"{stats['app_categories']}")
         
-        # 数据验证和类型转换
-        df['ip_type'] = pd.to_numeric(df['ip_type'], errors='coerce')
-        df['app_category_major'] = pd.to_numeric(df['app_category_major'], errors='coerce')
-        df['app_category_minor'] = pd.to_numeric(df['app_category_minor'], errors='coerce')
-        df['upstream_traffic'] = pd.to_numeric(df['upstream_traffic'], errors='coerce')
-        df['downstream_traffic'] = pd.to_numeric(df['downstream_traffic'], errors='coerce')
-        df['total_traffic'] = pd.to_numeric(df['total_traffic'], errors='coerce')
-        df['duration'] = pd.to_numeric(df['duration'], errors='coerce')
+        # 显示数据预览
+        st.subheader("📋 数据预览")
+        sample_data = data_service.get_data().head(10)
+        st.dataframe(sample_data)
         
-        # 处理空值
-        df = df.dropna()
-        
-        if df.empty:
-            return {'success': False, 'error': 'CSV文件中没有有效数据'}
-        
-        # 准备数据
-        data_tuples = []
-        for _, row in df.iterrows():
-            data_tuples.append((
-                row['user_account'],
-                int(row['ip_type']),
-                int(row['app_category_major']),
-                int(row['app_category_minor']),
-                int(row['upstream_traffic']),
-                int(row['downstream_traffic']),
-                int(row['total_traffic']),
-                int(row['duration']),
-                row['stat_time']
-            ))
-        
-        # 执行批量插入
-        data_service.client.insert('default.tbl_statistic_userapp_day', data_tuples)
-        
-        return {'success': True, 'count': len(data_tuples)}
+        # 显示日期范围
+        date_range = data_service.get_date_range()
+        if date_range['min_date'] and date_range['max_date']:
+            st.info(f"📅 数据时间范围: {date_range['min_date']} 至 {date_range['max_date']}")
         
     except Exception as e:
-        return {'success': False, 'error': str(e)}
+        st.error(f"❌ 数据加载失败: {str(e)}")
+        st.info("💡 请确保在当前目录下有以下CSV文件：")
+        st.markdown("""
+        - **主数据文件**: `tbl_statistic_userapp_day*.csv`
+        - **应用大类文件**: `app_catagory_major.csv`
+        - **应用小类文件**: `app_catagory_minor.csv`
+        """)
 
 def main():
     # 使用更大的标题
@@ -307,83 +289,48 @@ def main():
     
     st.sidebar.markdown("---")
     
-    # CSV数据导入功能
-    st.sidebar.markdown("### 📂 数据导入")
-    uploaded_file = st.sidebar.file_uploader(
-        "选择CSV文件导入", 
-        type=['csv'],
-        help="上传无表头的CSV文件，数据格式：user_account,ip_type,app_category_major,app_category_minor,upstream_traffic,downstream_traffic,total_traffic,duration,stat_time"
-    )
-    
-    if uploaded_file is not None:
-        # 预览CSV数据
-        try:
-            content = uploaded_file.read()
-            csv_content = content.decode('utf-8')
-            uploaded_file.seek(0)  # 重置文件指针
-            
-            # 只显示前几行作为预览
-            lines = csv_content.strip().split('\n')[:3]
-            st.sidebar.markdown("**📋 数据预览 (前3行):**")
-            for i, line in enumerate(lines, 1):
-                st.sidebar.text(f"{i}: {line[:50]}...")
-            
-            line_count = len(csv_content.strip().split('\n'))
-            st.sidebar.markdown(f"**📊 文件信息:** 共 {line_count} 行数据")
-            
-        except Exception as e:
-            st.sidebar.error(f"文件预览失败: {str(e)}")
-        
-        # 导入按钮
-        if st.sidebar.button("🚀 导入数据到数据库", type="primary"):
-            with st.spinner("正在导入CSV数据到ClickHouse数据库..."):
-                try:
-                    # 导入CSV数据
-                    result = import_csv_data(uploaded_file, data_service)
-                    if result['success']:
-                        st.sidebar.success(f"✅ 数据导入成功！共导入 {result['count']} 条记录")
-                        # 清除缓存以更新数据
-                        st.cache_resource.clear()
-                        st.rerun()
-                    else:
-                        st.sidebar.error(f"❌ 数据导入失败：{result['error']}")
-                except Exception as e:
-                    st.sidebar.error(f"❌ 数据导入失败：{str(e)}")
+    # 数据源信息
+    st.sidebar.markdown("### 📂 数据源")
+    if st.sidebar.button("🔄 刷新数据"):
+        st.cache_resource.clear()
+        st.rerun()
     
     st.sidebar.markdown("---")
     
     try:
-        # 基础统计信息 - 使用二级标题，与主标题协调
-        st.markdown("### 📈 基础统计信息")
-        
-        basic_stats = data_service.get_basic_stats(filters)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("总记录数", f"{basic_stats['total_records']:,}")
-        
-        with col2:
-            st.metric("用户总数", f"{basic_stats['total_users']:,}")
-        
-        with col3:
-            st.metric("总流量", f"{basic_stats['total_traffic_gb']:.2f} GB")
-        
-        with col4:
-            st.metric("应用大类数", f"{basic_stats['app_categories']:,}")
-        
-        st.markdown("---")
-        
         # 使用标签页进行导航
-        tab1, tab2, tab3, tab4 = st.tabs(["🌊 流量分析", "👥 用户分析", "📱 应用分析", "⏰ 时间分析"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🌐 总览", "🌊 流量分析", "👥 用户分析", "📱 应用分析", "⏰ 时间分析"])
         
         with tab1:
-            show_traffic_analysis(data_service, filters)
+            # 数据总览页面
+            show_data_info(data_service)
+            
+            # 基础统计信息
+            st.markdown("---")
+            st.markdown("### 📈 筛选后统计信息")
+            basic_stats = data_service.get_basic_stats(filters)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("筛选记录数", f"{basic_stats['total_records']:,}")
+            
+            with col2:
+                st.metric("筛选用户数", f"{basic_stats['total_users']:,}")
+            
+            with col3:
+                st.metric("筛选流量", f"{basic_stats['total_traffic_gb']:.2f} GB")
+            
+            with col4:
+                st.metric("筛选应用类数", f"{basic_stats['app_categories']:,}")
+        
         with tab2:
-            show_user_analysis(data_service, filters)
+            show_traffic_analysis(data_service, filters)
         with tab3:
-            show_app_analysis(data_service, filters)
+            show_user_analysis(data_service, filters)
         with tab4:
+            show_app_analysis(data_service, filters)
+        with tab5:
             show_time_analysis(data_service, filters)
             
     except Exception as e:
