@@ -9,6 +9,7 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import datetime, date
+from typing import Optional
 from csv_data_service import CSVDataService, FilterConditions
 from pdf_generator import generate_complete_pdf_report
 
