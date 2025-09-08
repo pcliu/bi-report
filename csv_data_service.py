@@ -107,48 +107,83 @@ class CSVDataService:
         self._app_minor_categories = None
         self._app_major_mapping = None
         self._app_minor_mapping = None
+        self._loaded_files = []  # 记录已加载的文件
         
         # 确保数据文件夹存在
         if not self.data_folder.exists():
             self.data_folder.mkdir(parents=True, exist_ok=True)
+        
+        print(f"📁 CSV数据服务初始化，数据目录: {self.data_folder.absolute()}")
     
     def _load_main_data(self) -> pd.DataFrame:
-        """加载主数据文件"""
+        """加载主数据文件，支持合并多个日期文件"""
         if self._main_data is not None:
             return self._main_data
         
-        # 查找主数据文件（支持通配符匹配）
+        # 查找所有主数据文件（支持多个日期）
         main_data_patterns = [
             "tbl_statistic_userapp_day*.csv",
-            "main_data.csv",
-            "traffic_data.csv"
+            "main_data*.csv",
+            "traffic_data*.csv"
         ]
         
-        main_data_file = None
+        all_files = []
         for pattern in main_data_patterns:
             files = list(self.data_folder.glob(pattern))
             if files:
-                # 选择最新的文件
-                main_data_file = max(files, key=lambda x: x.stat().st_mtime)
-                break
+                all_files.extend(files)
+                break  # 找到第一个匹配的模式就停止
         
-        if not main_data_file:
-            # 如果当前目录没有找到，尝试当前工作目录
-            for pattern in main_data_patterns:
-                files = list(Path(".").glob(pattern))
-                if files:
-                    main_data_file = max(files, key=lambda x: x.stat().st_mtime)
-                    break
-        
-        if not main_data_file:
+        if not all_files:
             raise FileNotFoundError(f"在 {self.data_folder} 中未找到主数据文件")
         
-        print(f"加载主数据文件: {main_data_file}")
+        # 按文件名排序，确保日期顺序
+        all_files.sort()
+        self._loaded_files = [f.name for f in all_files]
         
+        print(f"📊 找到 {len(all_files)} 个数据文件:")
+        for f in all_files:
+            print(f"  - {f.name}")
+        
+        # 加载并合并所有数据文件
+        dataframes = []
+        total_rows = 0
+        
+        for file_path in all_files:
+            print(f"🔄 加载文件: {file_path.name}")
+            try:
+                df = self._load_single_csv_file(file_path)
+                dataframes.append(df)
+                total_rows += len(df)
+                print(f"  ✅ 成功加载 {len(df):,} 行数据")
+            except Exception as e:
+                print(f"  ⚠️  加载失败: {e}")
+                continue
+        
+        if not dataframes:
+            raise FileNotFoundError("所有数据文件加载失败")
+        
+        # 合并所有数据
+        print(f"🔗 合并 {len(dataframes)} 个文件的数据...")
+        self._main_data = pd.concat(dataframes, ignore_index=True)
+        
+        # 去重（基于所有列）
+        original_count = len(self._main_data)
+        self._main_data = self._main_data.drop_duplicates()
+        deduplicated_count = len(self._main_data)
+        
+        if original_count != deduplicated_count:
+            print(f"🔍 去重: {original_count:,} -> {deduplicated_count:,} 行 (移除 {original_count - deduplicated_count:,} 重复记录)")
+        
+        print(f"✅ 数据加载完成: 总计 {len(self._main_data):,} 行数据")
+        return self._main_data
+    
+    def _load_single_csv_file(self, file_path: Path) -> pd.DataFrame:
+        """加载单个CSV文件"""
         # 读取CSV文件，根据是否有标题行决定处理方式
         try:
             # 先尝试读取第一行判断格式
-            sample = pd.read_csv(main_data_file, nrows=1)
+            sample = pd.read_csv(file_path, nrows=1)
             
             # 如果第一行看起来像数据而不是标题，则没有标题行
             if sample.iloc[0, 0].startswith('"') or str(sample.iloc[0, 0]).replace('@', '').replace('.', '').isalnum():
@@ -157,10 +192,10 @@ class CSVDataService:
                     'user_account', 'ip_type', 'app_category_major', 'app_category_minor',
                     'upstream_traffic', 'downstream_traffic', 'total_traffic', 'duration', 'stat_time'
                 ]
-                self._main_data = pd.read_csv(main_data_file, names=column_names, header=None)
+                df = pd.read_csv(file_path, names=column_names, header=None)
             else:
                 # 有标题行，使用现有的列名映射逻辑
-                df = pd.read_csv(main_data_file)
+                df = pd.read_csv(file_path)
                 column_mapping = {
                     '用户账号': 'user_account',
                     'IP类型': 'ip_type',
@@ -172,40 +207,39 @@ class CSVDataService:
                     '流量时长': 'duration',
                     '统计时间': 'stat_time'
                 }
-                self._main_data = df.rename(columns=column_mapping)
+                df = df.rename(columns=column_mapping)
         except Exception as e:
             print(f"读取文件时出错，尝试无标题行模式: {e}")
             column_names = [
                 'user_account', 'ip_type', 'app_category_major', 'app_category_minor',
                 'upstream_traffic', 'downstream_traffic', 'total_traffic', 'duration', 'stat_time'
             ]
-            self._main_data = pd.read_csv(main_data_file, names=column_names, header=None)
+            df = pd.read_csv(file_path, names=column_names, header=None)
         
         # 数据类型转换
-        self._main_data['ip_type'] = pd.to_numeric(self._main_data['ip_type'], errors='coerce').fillna(0).astype(int)
-        self._main_data['app_category_major'] = pd.to_numeric(self._main_data['app_category_major'], errors='coerce').fillna(0).astype(int)
-        self._main_data['app_category_minor'] = pd.to_numeric(self._main_data['app_category_minor'], errors='coerce').fillna(0).astype(int)
+        df['ip_type'] = pd.to_numeric(df['ip_type'], errors='coerce').fillna(0).astype(int)
+        df['app_category_major'] = pd.to_numeric(df['app_category_major'], errors='coerce').fillna(0).astype(int)
+        df['app_category_minor'] = pd.to_numeric(df['app_category_minor'], errors='coerce').fillna(0).astype(int)
         
         # 流量和时长转换为数值
         traffic_columns = ['upstream_traffic', 'downstream_traffic', 'total_traffic', 'duration']
         for col in traffic_columns:
-            self._main_data[col] = pd.to_numeric(self._main_data[col], errors='coerce').fillna(0.0)
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
         
         # 清理用户账号中的引号
-        if 'user_account' in self._main_data.columns:
-            self._main_data['user_account'] = self._main_data['user_account'].astype(str).str.strip('"')
+        if 'user_account' in df.columns:
+            df['user_account'] = df['user_account'].astype(str).str.strip('"')
         
         # 时间格式转换
-        if 'stat_time' in self._main_data.columns:
-            self._main_data['stat_time'] = self._main_data['stat_time'].astype(str).str.strip('"')
+        if 'stat_time' in df.columns:
+            df['stat_time'] = df['stat_time'].astype(str).str.strip('"')
             # 尝试转换为日期时间
             try:
-                self._main_data['stat_datetime'] = pd.to_datetime(self._main_data['stat_time'])
+                df['stat_datetime'] = pd.to_datetime(df['stat_time'])
             except:
-                print("警告：无法解析统计时间格式")
+                print("  ⚠️  警告：无法解析统计时间格式")
         
-        print(f"成功加载 {len(self._main_data)} 行主数据")
-        return self._main_data
+        return df
     
     def _load_app_categories(self):
         """加载应用分类数据"""
@@ -220,18 +254,14 @@ class CSVDataService:
             if file_path.exists():
                 major_file = file_path
                 break
-            # 也尝试当前目录
-            file_path = Path(pattern)
-            if file_path.exists():
-                major_file = file_path
-                break
         
         if major_file:
-            print(f"加载应用大类文件: {major_file}")
+            print(f"📱 加载应用大类文件: {major_file}")
             self._app_major_categories = pd.read_csv(major_file, names=['id', 'name'], header=None)
             self._app_major_mapping = dict(zip(self._app_major_categories['name'], self._app_major_categories['id']))
+            print(f"  ✅ 成功加载 {len(self._app_major_categories)} 个应用大类")
         else:
-            print("警告：未找到应用大类文件，将使用ID作为名称")
+            print("⚠️  警告：未找到应用大类文件，将使用ID作为名称")
             self._app_major_categories = pd.DataFrame(columns=['id', 'name'])
             self._app_major_mapping = {}
         
@@ -243,18 +273,14 @@ class CSVDataService:
             if file_path.exists():
                 minor_file = file_path
                 break
-            # 也尝试当前目录
-            file_path = Path(pattern)
-            if file_path.exists():
-                minor_file = file_path
-                break
         
         if minor_file:
-            print(f"加载应用小类文件: {minor_file}")
+            print(f"📱 加载应用小类文件: {minor_file}")
             self._app_minor_categories = pd.read_csv(minor_file, names=['id', 'name'], header=None)
             self._app_minor_mapping = dict(zip(self._app_minor_categories['name'], self._app_minor_categories['id']))
+            print(f"  ✅ 成功加载 {len(self._app_minor_categories)} 个应用小类")
         else:
-            print("警告：未找到应用小类文件，将使用ID作为名称")
+            print("⚠️  警告：未找到应用小类文件，将使用ID作为名称")
             self._app_minor_categories = pd.DataFrame(columns=['id', 'name'])
             self._app_minor_mapping = {}
     
@@ -1065,6 +1091,16 @@ class CSVDataService:
             max_date = df['stat_datetime'].max().date()
             return {'min_date': min_date, 'max_date': max_date}
         return {'min_date': None, 'max_date': None}
+    
+    def get_loaded_files_info(self) -> Dict[str, Any]:
+        """获取已加载文件的信息"""
+        return {
+            'main_data_files': self._loaded_files,
+            'total_files': len(self._loaded_files) if self._loaded_files else 0,
+            'data_folder': str(self.data_folder.absolute()),
+            'has_major_categories': not self._app_major_categories.empty if self._app_major_categories is not None else False,
+            'has_minor_categories': not self._app_minor_categories.empty if self._app_minor_categories is not None else False
+        }
     
     def close(self):
         """关闭服务（CSV版本无需特殊处理）"""

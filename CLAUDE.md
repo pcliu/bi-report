@@ -50,10 +50,12 @@ python test_csv_service.py
 ```
 
 ### CSV File Requirements
-Required CSV files in the current directory:
-- **Main traffic data**: `tbl_statistic_userapp_day*.csv` (pattern matching supported)
+Required CSV files in the **data** directory:
+- **Main traffic data**: `tbl_statistic_userapp_day*.csv` (supports multiple date files)
   - Format: user_account,ip_type,app_category_major,app_category_minor,upstream_traffic,downstream_traffic,total_traffic,duration,stat_time
   - No header row required
+  - Multiple date files are automatically merged (e.g., `tbl_statistic_userapp_day_2025-07-12*.csv`, `tbl_statistic_userapp_day_2025-07-13*.csv`)
+  - Automatic deduplication across files
 - **Application categories**:
   - `app_catagory_major.csv`: Application major category mappings (ID,Name format)
   - `app_catagory_minor.csv`: Application minor category mappings (ID,Name format)
@@ -174,7 +176,10 @@ This branch is designed for simplified local deployment:
    ```
 
 3. **Data Preparation**:
-   - Place main traffic data CSV file with pattern `tbl_statistic_userapp_day*.csv`
+   - Create a `data` directory in the project root
+   - Place main traffic data CSV files with pattern `tbl_statistic_userapp_day*.csv` in the data directory
+     - Supports multiple date files (automatically merged)
+     - Example: `tbl_statistic_userapp_day_2025-07-12_00_00_00.csv`, `tbl_statistic_userapp_day_2025-07-13_00_00_00.csv`
    - Include application category mapping files: `app_catagory_major.csv`, `app_catagory_minor.csv`
    - No database setup required - reads directly from CSV files
 
@@ -183,6 +188,9 @@ This branch is designed for simplified local deployment:
    - Faster setup for development and testing
    - Easy data sharing via CSV files
    - Reduced system dependencies
+   - **Multi-file support**: Automatically merge multiple date files
+   - **Data deduplication**: Remove duplicate records across files
+   - **Flexible file organization**: Centralized data directory structure
 
 **Note**: For production deployment with database backend, use the main branch with ClickHouse integration.
 

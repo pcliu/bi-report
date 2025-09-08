@@ -72,7 +72,7 @@ st.markdown("""
 def get_data_service():
     """获取数据服务实例"""
     try:
-        return CSVDataService(data_folder="./")
+        return CSVDataService(data_folder="./data")
     except Exception as e:
         st.error(f"CSV数据加载失败: {str(e)}")
         return None
@@ -231,21 +231,52 @@ def show_data_info(data_service: CSVDataService):
         with col4:
             st.metric("应用大类数", f"{stats['app_categories']}")
         
-        # 显示数据预览
-        st.subheader("📋 数据预览")
-        sample_data = data_service.get_data().head(10)
-        st.dataframe(sample_data)
+        # 显示文件信息
+        files_info = data_service.get_loaded_files_info()
+        
+        st.subheader("📁 数据文件信息")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.info(f"**数据目录**: {files_info['data_folder']}")
+            st.success(f"**已加载文件数**: {files_info['total_files']} 个")
+            
+            if files_info['main_data_files']:
+                st.write("**主数据文件**:")
+                for file in files_info['main_data_files']:
+                    st.write(f"  • {file}")
+        
+        with col2:
+            category_status = []
+            if files_info['has_major_categories']:
+                category_status.append("✅ 应用大类文件")
+            else:
+                category_status.append("❌ 应用大类文件")
+                
+            if files_info['has_minor_categories']:
+                category_status.append("✅ 应用小类文件")  
+            else:
+                category_status.append("❌ 应用小类文件")
+            
+            st.write("**分类文件状态**:")
+            for status in category_status:
+                st.write(f"  {status}")
         
         # 显示日期范围
         date_range = data_service.get_date_range()
         if date_range['min_date'] and date_range['max_date']:
-            st.info(f"📅 数据时间范围: {date_range['min_date']} 至 {date_range['max_date']}")
+            st.info(f"📅 **数据时间范围**: {date_range['min_date']} 至 {date_range['max_date']}")
+        
+        # 显示数据预览
+        st.subheader("📋 数据预览")
+        sample_data = data_service.get_data().head(10)
+        st.dataframe(sample_data, use_container_width=True)
         
     except Exception as e:
         st.error(f"❌ 数据加载失败: {str(e)}")
-        st.info("💡 请确保在当前目录下有以下CSV文件：")
+        st.info("💡 请确保在 **data** 目录下有以下CSV文件：")
         st.markdown("""
-        - **主数据文件**: `tbl_statistic_userapp_day*.csv`
+        - **主数据文件**: `tbl_statistic_userapp_day*.csv` (支持多个日期文件)
         - **应用大类文件**: `app_catagory_major.csv`
         - **应用小类文件**: `app_catagory_minor.csv`
         """)

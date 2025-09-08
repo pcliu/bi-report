@@ -13,8 +13,17 @@ def test_csv_service():
     try:
         # 初始化数据服务
         print("\n📁 初始化CSV数据服务...")
-        data_service = CSVDataService(data_folder="./")
+        data_service = CSVDataService(data_folder="./data")
         
+        # 测试文件信息
+        print("\n📁 测试文件信息...")
+        files_info = data_service.get_loaded_files_info()
+        print(f"  - 数据目录: {files_info['data_folder']}")
+        print(f"  - 已加载文件数: {files_info['total_files']}")
+        print(f"  - 主数据文件: {files_info['main_data_files']}")
+        print(f"  - 有应用大类文件: {files_info['has_major_categories']}")
+        print(f"  - 有应用小类文件: {files_info['has_minor_categories']}")
+
         # 测试基础统计
         print("\n📊 测试基础统计信息...")
         stats = data_service.get_basic_stats()
