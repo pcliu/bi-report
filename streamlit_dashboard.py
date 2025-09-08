@@ -296,20 +296,24 @@ def main():
     st.sidebar.markdown("---")
     
     try:
+        # 基础统计信息 - 使用二级标题，与主标题协调
+        st.markdown("### 📈 基础统计信息")
+        
+        # 显示基础统计信息（应用筛选条件）
+        show_basic_overview(data_service, filters)
+        
+        st.markdown("---")
+        
         # 使用标签页进行导航
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🌐 总览", "🌊 流量分析", "👥 用户分析", "📱 应用分析", "⏰ 时间分析"])
+        tab1, tab2, tab3, tab4 = st.tabs(["🌊 流量分析", "👥 用户分析", "📱 应用分析", "⏰ 时间分析"])
         
         with tab1:
-            # 总览页面 - 基础统计信息（应用筛选条件）  
-            show_basic_overview(data_service, filters)
-        
-        with tab2:
             show_traffic_analysis(data_service, filters)
-        with tab3:
+        with tab2:
             show_user_analysis(data_service, filters)
-        with tab4:
+        with tab3:
             show_app_analysis(data_service, filters)
-        with tab5:
+        with tab4:
             show_time_analysis(data_service, filters)
             
     except Exception as e:
