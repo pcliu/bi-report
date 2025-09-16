@@ -60,18 +60,143 @@
 
 ## 使用指南
 
-### 快速开始
-```bash
-# 1. 准备数据目录
+### Windows环境部署
+
+#### 1. Python环境安装
+```cmd
+# 下载并安装Python 3.8或更高版本
+# 从 https://www.python.org/downloads/ 下载Python安装包
+# 安装时勾选"Add Python to PATH"选项
+
+# 验证安装
+python --version
+pip --version
+```
+
+#### 2. 进入项目根目录，创建虚拟环境
+```cmd
+# 创建虚拟环境
+python -m venv .venv
+
+# 激活虚拟环境
+.venv\Scripts\activate
+
+# 验证虚拟环境
+where python
+```
+
+#### 3. 安装依赖
+```cmd
+# 方法1: 使用uv (推荐)
+pip install uv
+uv sync
+
+# 方法2: 使用pip (备选)
+pip install -r requirements.txt
+```
+
+#### 4. 准备数据和启动
+```cmd
+# 创建数据目录
 mkdir data
 
-# 2. 放入CSV文件
-cp your_traffic_data_*.csv data/
-cp app_catagory_*.csv data/
+# 复制CSV文件到data目录
+copy your_traffic_data_*.csv data\
+copy app_catagory_*.csv data\
 
-# 3. 启动服务
-source .venv/bin/activate
+# 启动服务
+.venv\Scripts\activate
 streamlit run streamlit_dashboard.py
+```
+
+### Linux/macOS环境部署
+
+#### 1. Python环境准备
+```bash
+# 检查Python版本 (需要3.8或更高版本)
+python3 --version
+
+# 如果Python版本过低，在Ubuntu/Debian上更新:
+sudo apt update
+sudo apt install python3.9 python3.9-venv python3.9-pip
+
+# 在macOS上使用Homebrew更新:
+brew install python3
+
+# 验证安装
+python3 --version
+pip3 --version
+```
+
+#### 2. 克隆项目和创建虚拟环境
+```bash
+# 进入项目目录
+cd /path/to/bi-report
+
+# 创建虚拟环境
+python3 -m venv .venv
+
+# 激活虚拟环境
+source .venv/bin/activate
+
+# 验证虚拟环境已激活
+which python
+```
+
+#### 3. 安装依赖
+```bash
+# 确保虚拟环境已激活
+source .venv/bin/activate
+
+# 方法1: 使用uv (推荐，速度更快)
+pip install uv
+uv sync
+
+# 方法2: 使用pip (备选)
+pip install -r requirements.txt
+
+# 验证关键包安装
+python -c "import streamlit, pandas, plotly; print('依赖安装成功')"
+```
+
+#### 4. 准备数据文件
+```bash
+# 创建数据目录
+mkdir -p data
+
+# 复制CSV文件到data目录 (替换为实际文件路径)
+cp /path/to/your/tbl_statistic_userapp_day*.csv data/
+cp /path/to/your/app_catagory_major.csv data/
+cp /path/to/your/app_catagory_minor.csv data/
+
+# 验证文件复制
+ls -la data/
+```
+
+#### 5. 启动和测试
+```bash
+# 激活虚拟环境
+source .venv/bin/activate
+
+# 测试CSV数据服务
+python test_csv_service.py
+
+# 启动Web界面
+streamlit run streamlit_dashboard.py
+
+# 浏览器访问: http://localhost:8501
+```
+
+#### 6. 后台运行 (可选)
+```bash
+# 使用nohup在后台运行
+nohup streamlit run streamlit_dashboard.py --server.port 8501 > app.log 2>&1 &
+
+# 查看运行状态
+ps aux | grep streamlit
+
+# 停止服务
+pkill -f streamlit
 ```
 
 ### 数据文件要求
