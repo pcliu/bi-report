@@ -181,39 +181,42 @@ class CSVDataService:
     def _load_single_csv_file(self, file_path: Path) -> pd.DataFrame:
         """加载单个CSV文件"""
         # 读取CSV文件，根据是否有标题行决定处理方式
+        column_names = [
+            'user_account', 'ip_type', 'app_category_major', 'app_category_minor',
+            'upstream_traffic', 'downstream_traffic', 'total_traffic', 'duration', 'stat_time'
+        ]
+        column_mapping = {
+            '用户账号': 'user_account',
+            'IP类型': 'ip_type',
+            '应用大类编号': 'app_category_major',
+            '应用小类编号': 'app_category_minor',
+            '上行流量': 'upstream_traffic',
+            '下行流量': 'downstream_traffic',
+            '上下行总流量': 'total_traffic',
+            '流量时长': 'duration',
+            '统计时间': 'stat_time'
+        }
+
         try:
-            # 先尝试读取第一行判断格式
+            # 读取一行判断是否包含表头
             sample = pd.read_csv(file_path, nrows=1)
-            
-            # 如果第一行看起来像数据而不是标题，则没有标题行
-            if sample.iloc[0, 0].startswith('"') or str(sample.iloc[0, 0]).replace('@', '').replace('.', '').isalnum():
-                # 没有标题行，手动指定列名
-                column_names = [
-                    'user_account', 'ip_type', 'app_category_major', 'app_category_minor',
-                    'upstream_traffic', 'downstream_traffic', 'total_traffic', 'duration', 'stat_time'
-                ]
-                df = pd.read_csv(file_path, names=column_names, header=None)
-            else:
-                # 有标题行，使用现有的列名映射逻辑
+            sample_columns = {str(col).strip() for col in sample.columns}
+            english_headers = set(column_names)
+            localized_headers = set(column_mapping.keys())
+            has_header = bool(sample_columns & english_headers or sample_columns & localized_headers)
+
+            if has_header:
                 df = pd.read_csv(file_path)
-                column_mapping = {
-                    '用户账号': 'user_account',
-                    'IP类型': 'ip_type',
-                    '应用大类编号': 'app_category_major',
-                    '应用小类编号': 'app_category_minor',
-                    '上行流量': 'upstream_traffic',
-                    '下行流量': 'downstream_traffic',
-                    '上下行总流量': 'total_traffic',
-                    '流量时长': 'duration',
-                    '统计时间': 'stat_time'
-                }
+                df.columns = [str(col).strip() for col in df.columns]
                 df = df.rename(columns=column_mapping)
+                # 确保缺失列存在，便于后续统一处理
+                for col in column_names:
+                    if col not in df.columns:
+                        df[col] = None
+            else:
+                df = pd.read_csv(file_path, names=column_names, header=None)
         except Exception as e:
             print(f"读取文件时出错，尝试无标题行模式: {e}")
-            column_names = [
-                'user_account', 'ip_type', 'app_category_major', 'app_category_minor',
-                'upstream_traffic', 'downstream_traffic', 'total_traffic', 'duration', 'stat_time'
-            ]
             df = pd.read_csv(file_path, names=column_names, header=None)
         
         # 数据类型转换
