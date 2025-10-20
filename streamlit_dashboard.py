@@ -90,7 +90,7 @@ def create_filter_panel(data_service: CSVDataService) -> FilterConditions:
         st.session_state.reset_counter = 0
     
     # 用户筛选
-    user_options = ["全部"] + data_service.get_available_users(50)
+    user_options = ["全部"] + data_service.get_available_users()
     selected_user = st.sidebar.selectbox("选择用户", user_options, index=0, key=f"user_filter_{st.session_state.reset_counter}")
     user_filter = selected_user if selected_user and selected_user != "全部" else None
     

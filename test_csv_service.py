@@ -34,7 +34,7 @@ def test_csv_service():
         
         # 测试用户列表
         print("\n👥 测试用户列表...")
-        users = data_service.get_available_users(limit=5)
+        users = data_service.get_available_users()
         print(f"  - 前5个用户: {users[:5]}")
         
         # 测试应用分类

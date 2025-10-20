@@ -1073,11 +1073,11 @@ class CSVDataService:
     
     # === 辅助方法 ===
     
-    def get_available_users(self, limit: int = 100) -> List[str]:
+    def get_available_users(self) -> List[str]:
         """获取可用的用户账号列表"""
         df = self._load_main_data()
         users = df['user_account'].unique()
-        return sorted(users)[:limit]
+        return sorted(users)
     
     def get_available_app_categories(self) -> List[str]:
         """获取可用的应用大类列表（返回名称）"""
