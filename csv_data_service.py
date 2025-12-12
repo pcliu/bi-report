@@ -425,12 +425,12 @@ class CSVDataService:
             'user_account': 'count'
         }).rename(columns={'user_account': 'session_count'})
         
-        # 筛选高活跃上传用户
+        # 筛选高活跃上传用户（使用 .copy() 明确创建副本，避免 SettingWithCopyWarning）
         high_upload = user_stats[
             (user_stats['session_count'] >= 5) &
             (user_stats['upstream_traffic'] > user_stats['downstream_traffic']) &
             (user_stats['upstream_traffic'] >= 104857600)  # 100MB
-        ]
+        ].copy()
         
         # 计算上传比例
         high_upload['upload_ratio'] = high_upload['upstream_traffic'] / high_upload['downstream_traffic'].replace(0, 1)
