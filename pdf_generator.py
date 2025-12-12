@@ -15,7 +15,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import plotly.io as pio
 import platform
-from csv_data_service import CSVDataService
+from data_service import DataService
 
 
 def setup_chinese_font():
@@ -182,7 +182,7 @@ def generate_complete_pdf_report(filters=None):
     story.append(PageBreak())
     
     # 获取数据服务实例
-    data_service = CSVDataService(data_folder="./data")
+    data_service = DataService()
     
     try:
         # === 1. 基础统计信息 ===

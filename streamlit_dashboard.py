@@ -10,7 +10,7 @@ import pandas as pd
 import io
 from datetime import datetime, date
 from typing import Optional
-from csv_data_service import CSVDataService, FilterConditions
+from data_service import DataService, FilterConditions
 from pdf_generator import generate_complete_pdf_report
 
 # 页面配置
@@ -73,13 +73,13 @@ st.markdown("""
 def get_data_service():
     """获取数据服务实例"""
     try:
-        return CSVDataService(data_folder="./data")
+        return DataService()
     except Exception as e:
-        st.error(f"CSV数据加载失败: {str(e)}")
+        st.error(f"数据服务加载失败: {str(e)}")
         return None
 
 
-def create_filter_panel(data_service: CSVDataService) -> FilterConditions:
+def create_filter_panel(data_service: DataService) -> FilterConditions:
     """创建筛选面板并返回筛选条件"""
     st.sidebar.markdown("## 🔍 筛选条件")
     
@@ -214,7 +214,7 @@ def create_filter_panel(data_service: CSVDataService) -> FilterConditions:
     
     return filters
 
-def show_basic_overview(data_service: CSVDataService, filters: Optional[FilterConditions] = None):
+def show_basic_overview(data_service: DataService, filters: Optional[FilterConditions] = None):
     """显示基础数据概览（简洁版本）"""
     try:
         # 获取基础统计信息
@@ -287,11 +287,60 @@ def main():
     
     st.sidebar.markdown("---")
     
-    # 数据源信息
-    st.sidebar.markdown("### 📂 数据源")
-    if st.sidebar.button("🔄 刷新数据"):
-        st.cache_resource.clear()
-        st.rerun()
+    # 数据源与管理
+    st.sidebar.markdown("### 📂 数据管理")
+    
+    # 自动加载逻辑：如果数据库为空，尝试自动加载
+    if 'data_initialized' not in st.session_state:
+        # 简单检查数据是否存在
+        if not data_service.get_date_range().get('min_date'):
+            with st.spinner("🚀 正在初始化数据..."):
+                try:
+                    stats = data_service.reload_all_data()
+                    if stats['rows_inserted'] > 0:
+                        st.session_state['data_initialized'] = True
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"自动初始化失败: {e}")
+        else:
+            st.session_state['data_initialized'] = True
+
+    # 显示数据状态
+    current_range = data_service.get_date_range()
+    total_records = data_service.get_basic_stats().get('total_records', 0)
+    
+    st.sidebar.info(f"""
+    **数据状态**
+    - 记录数: {total_records:,}
+    - 范围: {current_range.get('min_date', '-')} 至 {current_range.get('max_date', '-')} 
+    """)
+    
+    # 重新加载按钮
+    if st.sidebar.button("🔄 从磁盘重新加载数据", type="primary", help="清空当前数据库，并重新加载 data 目录下所有 CSV 文件"):
+        with st.spinner("正在重载所有数据..."):
+            try:
+                stats = data_service.reload_all_data()
+                st.success(f"""
+                ✅ 加载完成!
+                - 流量文件: {stats['files_loaded']} 个
+                - 数据行数: {stats['rows_inserted']:,} 行
+                - 分类数据: {'已更新' if stats['categories_loaded'] else '未找到'}
+                """)
+                st.cache_resource.clear()
+                import time
+                time.sleep(2)
+                st.rerun()
+            except Exception as e:
+                st.error(f"重载失败: {e}")
+
+    st.sidebar.markdown("---")
+    
+    st.sidebar.markdown("""
+    **💡 使用说明**
+    1. 将 CSV 文件放入 `data/` 目录
+    2. 点击上方 **从磁盘重新加载数据**
+    3. 系统会自动同步所有文件
+    """)
     
     st.sidebar.markdown("---")
     
