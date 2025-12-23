@@ -24,7 +24,7 @@ streamlit run streamlit_dashboard.py
 ## 数据与 Schema
 - `traffic_data` 表：用户账号、IP 类型、应用大/小类、上下行/总流量、时长、统计时间等字段，含时间/用户/应用/类型等索引，所有聚合在数据库完成。
 - CSV 格式：
-  - `tbl_statistic_userapp_day*.csv`（无表头）：`user_account,ip_type,app_category_major,app_category_minor,upstream_traffic,downstream_traffic,total_traffic,duration,stat_time`
+  - `tbl_statistic_userapp_day*.csv`（无表头）：`user_account,ip_type,app_category_major,app_category_minor,upstream_traffic,downstream_traffic,total_traffic,duration,stat_time,new_connections,removed_connections`
   - `app_catagory_{major,minor}.csv`（无表头）：`ID,名称`
 
 ## 目录速览

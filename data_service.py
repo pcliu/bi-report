@@ -247,7 +247,8 @@ class DataService:
         """读取并处理CSV文件，统一列名和类型"""
         column_names = [
             'user_account', 'ip_type', 'app_category_major', 'app_category_minor',
-            'upstream_traffic', 'downstream_traffic', 'total_traffic', 'duration', 'stat_time'
+            'upstream_traffic', 'downstream_traffic', 'total_traffic', 'duration', 'stat_time',
+            'new_connections', 'removed_connections'
         ]
         column_mapping = {
             '用户账号': 'user_account',
@@ -298,6 +299,10 @@ class DataService:
             
             if 'stat_time' in df.columns:
                 df['stat_time'] = df['stat_time'].astype(str).str.strip('"')
+            
+            # 连接数列转换
+            df['new_connections'] = pd.to_numeric(df['new_connections'], errors='coerce').fillna(0).astype(int)
+            df['removed_connections'] = pd.to_numeric(df['removed_connections'], errors='coerce').fillna(0).astype(int)
 
             return df
         except Exception as e:
@@ -456,7 +461,7 @@ class DataService:
             SELECT 
                 ip_type,
                 SUM(total_traffic) as total_traffic,
-                COUNT(*) as session_count
+                SUM(new_connections) as connection_count
             FROM traffic_data
         """
         params = []
@@ -521,7 +526,7 @@ class DataService:
                 SUM(total_traffic) as total_traffic,
                 SUM(upstream_traffic) as upstream_traffic,
                 SUM(downstream_traffic) as downstream_traffic,
-                COUNT(*) as sessions
+                SUM(new_connections) as connections
             FROM traffic_data
         """
         params = []
@@ -551,19 +556,19 @@ class DataService:
         """获取用户活跃度分布 (SQL优化版)"""
         self._load_app_categories()
         
-        # 使用子查询：先按用户统计会话数，再分组
+        # 使用子查询：先按用户统计连接数，再分组
         query = """
             SELECT 
                 CASE 
-                    WHEN session_count = 1 THEN '单次会话'
-                    WHEN session_count <= 5 THEN '2-5次会话'
-                    WHEN session_count <= 10 THEN '6-10次会话'
-                    WHEN session_count <= 20 THEN '11-20次会话'
-                    ELSE '>20次会话'
+                    WHEN connection_count = 1 THEN '单次连接'
+                    WHEN connection_count <= 5 THEN '2-5次连接'
+                    WHEN connection_count <= 10 THEN '6-10次连接'
+                    WHEN connection_count <= 20 THEN '11-20次连接'
+                    ELSE '>20次连接'
                 END as activity_level,
                 COUNT(*) as user_count
             FROM (
-                SELECT user_account, COUNT(*) as session_count
+                SELECT user_account, SUM(new_connections) as connection_count
                 FROM traffic_data
         """
         params = []
@@ -627,7 +632,7 @@ class DataService:
                 SUM(upstream_traffic) as total_upstream,
                 SUM(downstream_traffic) as total_downstream,
                 SUM(total_traffic) as total_traffic,
-                COUNT(*) as session_count
+                SUM(new_connections) as connection_count
             FROM traffic_data
         """
         params = []
@@ -638,7 +643,7 @@ class DataService:
         
         query += """
             GROUP BY user_account
-            HAVING session_count >= 5 
+            HAVING connection_count >= 5 
                AND total_upstream > total_downstream 
                AND total_upstream >= 104857600
             ORDER BY total_upstream DESC
@@ -688,7 +693,7 @@ class DataService:
                     SELECT 
                         app_category_major,
                         SUM(upstream_traffic) as upstream_traffic,
-                        COUNT(*) as session_count,
+                        SUM(new_connections) as connection_count,
                         COUNT(DISTINCT user_account) as user_count
                     FROM traffic_data
                 """
@@ -824,7 +829,7 @@ class DataService:
                             SUM(upstream_traffic) as user_upstream_traffic,
                             SUM(downstream_traffic) as user_downstream_traffic,
                             SUM(total_traffic) as user_total_traffic,
-                            COUNT(*) as session_count
+                            SUM(new_connections) as connection_count
                         FROM traffic_data
                         WHERE app_category_major = ?
                     """
@@ -894,7 +899,7 @@ class DataService:
         
         # 确定指标列
         if metric_type == 'session_count':
-            metric_expr = "COUNT(*)"
+            metric_expr = "SUM(new_connections)"
             metric_alias = "value"
         elif metric_type == 'traffic':
             if traffic_type == 'upstream':
@@ -908,7 +913,7 @@ class DataService:
             metric_expr = "AVG(duration)"
             metric_alias = "value"
         else:
-            metric_expr = "COUNT(*)"
+            metric_expr = "SUM(new_connections)"
             metric_alias = "value"
         
         # 构建分组字段
@@ -1012,14 +1017,14 @@ class DataService:
         if time_data.empty: return None
         
         group_labels = {'none': '总体', 'ip_type': 'IP类型', 'app_category_major': '应用大类', 'user_account': '用户'}
-        metric_labels = {'session_count': '会话数', 'traffic': '流量(GB)', 'session_duration': '平均会话时长(秒)'}
+        metric_labels = {'session_count': '连接数', 'traffic': '流量(GB)', 'session_duration': '平均连接时长(秒)'}
         traffic_labels = {'total': '总流量', 'upstream': '上行流量', 'downstream': '下行流量'}
         
         group_label = group_labels.get(group_by_field, '总体')
         if metric_type == 'traffic':
             metric_label = traffic_labels.get(traffic_type, '总流量')
         else:
-            metric_label = metric_labels.get(metric_type, '会话数')
+            metric_label = metric_labels.get(metric_type, '连接数')
         
         title = f'时间趋势 - {metric_label}' if group_by_field == 'none' else f'时间趋势 - {metric_label} (按{group_label}分组)'
         
@@ -1042,8 +1047,20 @@ class DataService:
         """创建上行vs下行流量饼图"""
         traffic_data = self.get_traffic_distribution(filters)
         if traffic_data.empty: return None
-        fig = go.Figure(data=[go.Pie(labels=['上行流量', '下行流量'], values=[traffic_data.iloc[0]['upstream'], traffic_data.iloc[0]['downstream']], hole=0.3)])
-        fig.update_layout(title_text="上行vs下行流量分布")
+        
+        fig = go.Figure(data=[
+            go.Pie(
+                labels=['上行流量', '下行流量'],
+                values=[traffic_data.iloc[0]['upstream'], traffic_data.iloc[0]['downstream']],
+                hole=0.3,
+                marker=dict(colors=['#FF6B6B', '#4ECDC4'])
+            )
+        ])
+        fig.update_layout(
+            title="上行vs下行流量占比", 
+            font=dict(size=14),
+            showlegend=True
+        )
         return fig
 
     def create_ip_type_pie_chart(self, filters: Optional[FilterConditions] = None, by_traffic: bool = True) -> Optional[go.Figure]:
@@ -1054,8 +1071,8 @@ class DataService:
             values = ip_data['total_traffic']
             title = "IPv4 vs IPv6 流量分布"
         else:
-            values = ip_data['session_count']
-            title = "IPv4 vs IPv6 会话数分布"
+            values = ip_data['connection_count']
+            title = "IPv4 vs IPv6 连接数分布"
         fig = go.Figure(data=[go.Pie(labels=ip_data['ip_type_name'], values=values, hole=0.3)])
         fig.update_layout(title_text=title)
         return fig
@@ -1064,64 +1081,157 @@ class DataService:
         """创建时长分布柱状图"""
         duration_data = self.get_duration_distribution(filters)
         if duration_data.empty: return None
-        fig = px.bar(duration_data, x='duration_range', y='count', title="流量时长分布")
+        
+        fig = px.bar(duration_data, x='duration_range', y='count', 
+                    title='流量时长分布', 
+                    labels={'duration_range': '时长范围', 'count': '记录数'},
+                    color='count',
+                    color_continuous_scale='Blues')
+        fig.update_layout(font=dict(size=12), showlegend=False)
         return fig
 
     def create_top_users_bar_chart(self, limit: int = 10, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
         """创建TOP用户流量柱状图"""
         user_data = self.get_top_traffic_users(limit, filters)
         if user_data.empty: return None
-        fig = px.bar(user_data, x='user_account', y='total_traffic_gb', title=f"流量TOP {limit} 用户", labels={'total_traffic_gb': '总流量(GB)', 'user_account': '用户账号'})
+        
+        fig = px.bar(user_data.head(limit), x='user_account', y='total_traffic_gb',
+                    title=f'TOP {limit}用户流量消耗 (GB)',
+                    labels={'user_account': '用户账号', 'total_traffic_gb': '总流量(GB)'},
+                    color='total_traffic_gb',
+                    color_continuous_scale='Reds')
+        fig.update_layout(xaxis_tickangle=45, font=dict(size=10), showlegend=False)
         return fig
 
     def create_user_activity_pie_chart(self, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
-        """创建用户活跃度饼图"""
+        """创建用户活跃度分布饼图"""
         activity_data = self.get_user_activity_distribution(filters)
         if activity_data.empty: return None
-        fig = go.Figure(data=[go.Pie(labels=activity_data['activity_level'], values=activity_data['user_count'], hole=0.3)])
-        fig.update_layout(title_text="用户活跃度分布")
+        
+        fig = px.pie(activity_data, values='user_count', names='activity_level',
+                    title='用户活跃度分布',
+                    color_discrete_sequence=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57'])
+        fig.update_layout(font=dict(size=12), showlegend=True)
         return fig
 
     def create_user_traffic_bar_chart(self, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
         """创建用户流量消耗分布柱状图"""
         traffic_data = self.get_user_traffic_distribution(filters)
         if traffic_data.empty: return None
-        fig = px.bar(traffic_data, x='traffic_range', y='user_count', title="用户流量消耗分布")
+        
+        fig = px.bar(traffic_data, x='traffic_range', y='user_count',
+                    title='用户流量消耗分布',
+                    labels={'traffic_range': '流量范围', 'user_count': '用户数'},
+                    color='user_count',
+                    color_continuous_scale='Greens')
+        fig.update_layout(font=dict(size=12), showlegend=False)
         return fig
 
     def create_upload_users_bar_chart(self, limit: int = 10, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
         """创建高活跃上传用户柱状图"""
         user_data = self.get_upload_heavy_users(limit, filters)
         if user_data.empty: return None
-        fig = px.bar(user_data, x='user_account', y='upstream_gb', title=f"高活跃上传用户 TOP {limit}", labels={'upstream_gb': '上行流量(GB)', 'user_account': '用户账号'})
+        
+        fig = px.bar(user_data, x='user_account', y='upstream_gb',
+                    title=f'高活跃上传用户 TOP {limit}',
+                    labels={'upstream_gb': '上行流量(GB)', 'user_account': '用户账号'},
+                    color='upstream_gb',
+                    color_continuous_scale='Oranges')
+        fig.update_layout(xaxis_tickangle=45, font=dict(size=10), showlegend=False)
         return fig
 
     def create_upload_ratio_scatter_chart(self, limit: int = 20, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
         """创建上传比例散点图"""
         user_data = self.get_upload_heavy_users(limit, filters)
         if user_data.empty: return None
-        fig = px.scatter(user_data, x='upstream_gb', y='upload_ratio', size='total_gb', hover_name='user_account', title=f"上传流量 vs 上传比例 (TOP {limit})", labels={'upstream_gb': '上行流量(GB)', 'upload_ratio': '上传:下载比例', 'total_gb': '总流量(GB)'})
+        fig = px.scatter(
+            user_data, 
+            x='upstream_gb', 
+            y='upload_ratio', 
+            size='total_gb', 
+            hover_name='user_account', 
+            title=f"上传流量 vs 上传比例 (TOP {limit})", 
+            labels={'upstream_gb': '上行流量(GB)', 'upload_ratio': '上传:下载比例', 'total_gb': '总流量(GB)'},
+            color_discrete_sequence=['#e74c3c']  # 显式设置红色
+        )
+        # 确保标记颜色生效
+        fig.update_traces(marker=dict(color='#e74c3c'))
         return fig
 
     def create_app_traffic_bar_chart(self, limit: int = 10, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
-        """创建应用大类流量柱状图"""
+        """创建应用大类上行流量柱状图（含占比）"""
         app_data = self.get_app_major_analysis(limit, filters)
         if app_data.empty: return None
-        fig = px.bar(app_data, x='app_name', y='upstream_traffic_gb', text='upstream_percentage', title=f"应用大类上行流量 TOP {limit}", labels={'upstream_traffic_gb': '上行流量(GB)', 'app_name': '应用名称'})
-        fig.update_traces(texttemplate='%{y:.1f}GB (%{text:.1f}%)', textposition='outside')
+        
+        # 创建自定义文本，包含流量和占比
+        app_data['text_label'] = app_data.apply(
+            lambda row: f"{row['upstream_traffic_gb']:.1f}GB<br>({row['upstream_percentage']:.1f}%)", 
+            axis=1
+        )
+        
+        fig = px.bar(app_data, x='app_name', y='upstream_traffic_gb',
+                    title='应用大类上行流量消耗TOP 10（含占比）',
+                    labels={'app_name': '应用大类', 'upstream_traffic_gb': '上行流量(GB)'},
+                    color='upstream_traffic_gb',
+                    color_continuous_scale='Viridis',
+                    text='text_label')
+        
+        # 设置文本显示在柱状图上方
+        fig.update_traces(textposition='outside')
+        fig.update_layout(
+            xaxis_tickangle=45, 
+            font=dict(size=12), 
+            showlegend=False,
+            margin=dict(t=100)
+        )
         return fig
     
     def create_app_traffic_pie_chart(self, limit: int = 10, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
-        """创建应用大类流量占比饼图"""
+        """创建应用大类上行流量饼图（占比）"""
         app_data = self.get_app_major_analysis(limit, filters)
         if app_data.empty: return None
-        fig = go.Figure(data=[go.Pie(labels=app_data['app_name'], values=app_data['upstream_traffic_gb'], hole=0.3)])
-        fig.update_layout(title_text="应用大类上行流量占比")
+        
+        # 计算其他应用的占比
+        top_apps_percentage = app_data['upstream_percentage'].sum()
+        others_percentage = 100 - top_apps_percentage
+        
+        # 准备饼图数据
+        labels = app_data['app_name'].tolist()
+        values = app_data['upstream_percentage'].tolist()
+        
+        # 如果其他应用占比大于1%，则添加"其他"项
+        if others_percentage > 1:
+            labels.append('其他应用')
+            values.append(others_percentage)
+        
+        fig = px.pie(values=values, names=labels,
+                    title=f'应用大类上行流量占比TOP {limit}')
+        
+        # 设置显示格式
+        fig.update_traces(
+            textposition='inside',
+            textinfo='percent+label',
+            hovertemplate='<b>%{label}</b><br>占比: %{percent}<br>数值: %{value:.1f}%<extra></extra>'
+        )
+        
+        fig.update_layout(
+            font=dict(size=12),
+            showlegend=True,
+            legend=dict(orientation="v", yanchor="middle", y=0.5, xanchor="left", x=1.05)
+        )
+        
         return fig
 
     def create_app_users_bar_chart(self, limit: int = 10, filters: Optional[FilterConditions] = None) -> Optional[go.Figure]:
         """创建应用大类用户数柱状图"""
         app_data = self.get_app_major_analysis(limit, filters)
         if app_data.empty: return None
-        fig = px.bar(app_data, x='app_name', y='user_count', title=f"应用大类用户数 TOP {limit}", labels={'user_count': '用户数', 'app_name': '应用名称'})
+        
+        app_data_sorted = app_data.sort_values('user_count', ascending=False)
+        fig = px.bar(app_data_sorted, x='app_name', y='user_count',
+                    title='应用大类用户数TOP 10',
+                    labels={'app_name': '应用大类', 'user_count': '用户数'},
+                    color='user_count',
+                    color_continuous_scale='Plasma')
+        fig.update_layout(xaxis_tickangle=45, font=dict(size=12), showlegend=False)
         return fig

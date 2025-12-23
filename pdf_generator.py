@@ -89,22 +89,45 @@ def create_plotly_image(fig, width=600, height=400):
                 if hasattr(trace, 'marker'):
                     trace.marker.color = colors_list[i % len(colors_list)]
         
-        # 为散点图设置颜色 - 保留原有的颜色映射
+        # 为散点图设置颜色 - 改进颜色检测逻辑
         if 'Scatter' in str(fig.data):
+            colors_list = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c']
             for i, trace in enumerate(fig.data):
                 if hasattr(trace, 'marker'):
-                    # 只有当marker没有颜色映射时才设置固定颜色
-                    if not hasattr(trace.marker, 'color') or trace.marker.color is None:
-                        colors_list = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12']
+                    # 检查marker.color是否为None或未设置
+                    has_color = False
+                    try:
+                        if trace.marker.color is not None:
+                            # 如果是字符串颜色值，保留
+                            if isinstance(trace.marker.color, str):
+                                has_color = True
+                    except:
+                        pass
+                    
+                    # 如果没有设置颜色，使用预定义颜色
+                    if not has_color:
                         trace.marker.color = colors_list[i % len(colors_list)]
                     
-                    # 确保散点图大小设置正确
-                    if hasattr(trace.marker, 'size'):
+                    # 动态计算散点图大小 - 根据数据范围调整 sizeref
+                    if hasattr(trace.marker, 'size') and trace.marker.size is not None:
+                        size_data = trace.marker.size
+                        # 获取 size 数据的最大值
+                        try:
+                            if hasattr(size_data, '__iter__') and not isinstance(size_data, str):
+                                max_size = max(size_data)
+                            else:
+                                max_size = float(size_data)
+                        except:
+                            max_size = 100  # 默认值
+                        
+                        # 目标：最大点直径为 40 像素
+                        desired_max_diameter = 40
+                        # 计算 sizeref: sizeref = max_value / desired_diameter
+                        calculated_sizeref = max_size / desired_max_diameter if max_size > 0 else 1
+                        
                         trace.marker.sizemode = 'diameter'
-                        trace.marker.sizeref = 2.0  # 调整大小参考值
-                        # 确保最小大小可见
-                        if hasattr(trace.marker, 'sizemin'):
-                            trace.marker.sizemin = 4
+                        trace.marker.sizeref = calculated_sizeref
+                        trace.marker.sizemin = 8  # 确保最小大小可见
         
         img_bytes = pio.to_image(fig, format="png", width=width, height=height, scale=2, engine="kaleido")
         img_buffer = io.BytesIO(img_bytes)
@@ -321,8 +344,8 @@ def generate_complete_pdf_report(filters=None):
         if fig:
             story.append(create_plotly_image(fig, width=600, height=400))
         
-        # 5.3 会话数时间趋势
-        story.append(Paragraph("5.3 会话数时间趋势", subheading_style))
+        # 5.3 连接数时间趋势
+        story.append(Paragraph("5.3 连接数时间趋势", subheading_style))
         fig = data_service.create_flexible_time_chart(
             group_by_field='none',
             metric_type='session_count',
@@ -371,7 +394,7 @@ def generate_complete_pdf_report(filters=None):
     5. 时间分析：多维度时间趋势分析，包括：
        - 总体流量时间趋势
        - IPv4 vs IPv6流量时间分布对比
-       - 会话数时间变化趋势
+       - 连接数时间变化趋势
        - TOP用户流量时间趋势分析
     
     本报告包含所有Dashboard页面的图表和数据，提供全面的流量分析视角。

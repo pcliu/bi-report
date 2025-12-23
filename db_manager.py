@@ -35,7 +35,9 @@ class DBManager:
             total_traffic REAL,
             duration REAL,
             stat_time TEXT,
-            import_batch_id TEXT
+            import_batch_id TEXT,
+            new_connections INTEGER,
+            removed_connections INTEGER
         )
         ''')
 

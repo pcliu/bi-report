@@ -403,7 +403,7 @@ def show_traffic_analysis(data_service, filters):
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
             
-            st.dataframe(top_users[['user_account', 'total_traffic_gb', 'upstream_gb', 'downstream_gb', 'sessions']])
+            st.dataframe(top_users[['user_account', 'total_traffic_gb', 'upstream_gb', 'downstream_gb', 'connections']])
         
     except Exception as e:
         st.error(f"流量分析数据获取失败: {str(e)}")
@@ -427,7 +427,7 @@ def show_user_analysis(data_service, filters):
         
         # 高活跃且上行流量为主的用户分析
         st.subheader("🔍 高活跃上传用户分析")
-        st.markdown("**分析条件**: 活跃用户(会话数≥5) + 上行流量>下行流量 + 上行流量≥100MB")
+        st.markdown("**分析条件**: 活跃用户(连接数≥5) + 上行流量>下行流量 + 上行流量≥100MB")
         
         upload_heavy_users = data_service.get_upload_heavy_users(20, filters)
         
@@ -448,9 +448,9 @@ def show_user_analysis(data_service, filters):
             
             # 详细数据表格
             st.subheader("📋 高活跃上传用户详细数据")
-            display_df = upload_heavy_users[['user_account', 'session_count', 'upstream_gb', 
+            display_df = upload_heavy_users[['user_account', 'connection_count', 'upstream_gb', 
                                            'downstream_gb', 'total_gb', 'upload_ratio']].copy()
-            display_df.columns = ['用户账号', '会话数', '上行流量(GB)', '下行流量(GB)', '总流量(GB)', '上传比例']
+            display_df.columns = ['用户账号', '连接数', '上行流量(GB)', '下行流量(GB)', '总流量(GB)', '上传比例']
             
             # 格式化上传比例显示
             display_df['上传比例'] = display_df['上传比例'].apply(
@@ -488,7 +488,7 @@ def show_user_analysis(data_service, filters):
             
             st.info("""
             📊 **分析说明**: 
-            - **高活跃**: 会话数≥5次，表示用户使用频繁
+            - **高活跃**: 连接数≥5次，表示用户使用频繁
             - **上传为主**: 上行流量>下行流量，可能涉及内容上传、数据同步等行为
             - **上传比例**: "仅上传"表示下行流量为0，其他显示为上传:下载的比例
             - **风险等级**: 基于上传比例和流量大小综合评估，"仅上传"用户自动视为高风险
@@ -548,8 +548,8 @@ def show_app_analysis(data_service, filters):
         if not category_users.empty:
             # 准备合并表格的数据
             display_df = category_users[['category_name', 'user_account', 'user_upstream_gb', 'user_downstream_gb', 
-                                       'user_total_gb', 'session_count', 'user_traffic_percentage']].copy()
-            display_df.columns = ['应用大类', '用户账号', '上行流量(GB)', '下行流量(GB)', '总流量(GB)', '会话数', '占大类比例(%)']
+                                       'user_total_gb', 'connection_count', 'user_traffic_percentage']].copy()
+            display_df.columns = ['应用大类', '用户账号', '上行流量(GB)', '下行流量(GB)', '总流量(GB)', '连接数', '占大类比例(%)']
             
             # 格式化数据
             display_df['上行流量(GB)'] = display_df['上行流量(GB)'].round(3)
@@ -572,8 +572,8 @@ def show_app_analysis(data_service, filters):
                 total_upstream = category_users['user_upstream_gb'].sum()
                 st.metric("总上行流量", f"{total_upstream:.2f}GB")
             with col4:
-                avg_sessions = category_users['session_count'].mean()
-                st.metric("平均会话数", f"{avg_sessions:.1f}")
+                avg_connections = category_users['connection_count'].mean()
+                st.metric("平均连接数", f"{avg_connections:.1f}")
             
             st.info("📋 **表格说明**: 显示上行流量TOP10应用大类中每个大类的TOP10用户详情。表格按应用大类分组，每个大类显示其TOP10用户的流量数据和占比。")
         else:
@@ -629,9 +629,9 @@ def show_time_analysis(data_service, filters):
             
             # 指标类型选择
             metric_options = {
-                'session_count': '会话数',
+                'session_count': '连接数',
                 'traffic': '流量',
-                'session_duration': '平均会话时长'
+                'session_duration': '平均连接时长'
             }
             selected_metric = st.selectbox(
                 "纵轴指标",
